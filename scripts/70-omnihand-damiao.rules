@@ -1,0 +1,2 @@
+# Current Damiao USB2CANFD DUAL only. Do not grant every USB device access.
+SUBSYSTEM=="usb", ATTR{idVendor}=="34b7", ATTR{idProduct}=="6632", MODE="0660", GROUP="plugdev", TAG+="uaccess"

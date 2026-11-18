@@ -1,0 +1,33 @@
+# Local Python environments and generated files
+.venv/
+.venv*/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+
+# Official binary SDK, cached wheels and downloaded vendor examples
+vendor/
+*.whl
+*.pyd
+*.dll
+*.so
+*.zip
+
+# Device-specific configuration, captures and logs
+config.local.json
+.env
+.env.*
+!.env.example
+data/*
+!data/.gitkeep
+*.log
+reports/private/
+
+# Editor state
+.vscode/*.log
+.DS_Store
+Thumbs.db

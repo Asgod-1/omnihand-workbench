@@ -1,0 +1,15 @@
+{
+  "api": "OmniHand2025.get_all_tactile_sensor_data_raw",
+  "sdk": "omnihand==1.1.11",
+  "method": "Offline local TCP adapter simulator; request produced by the unmodified official SDK getter.",
+  "source": "https://github.com/AgibotTech/agillink_omnihand_sdk/blob/main/doc/en/API_PYTHON_O10.md",
+  "canfd": true,
+  "ext": true,
+  "rtr": false,
+  "brs": true,
+  "can_id": 393481,
+  "flags": "0150",
+  "channel": 0,
+  "data": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  "packet_hex": "55010000005000000000000000000006010901500040000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001b"
+}

@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>OmniHand · 开发工作台</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml"><link rel="stylesheet" href="/style.css">
+  <script type="importmap">{"imports":{"three":"/assets/three/three.module.js"}}</script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="OmniHand 开发工作台"><span class="brand-mark">O<span>H</span></span><span>OmniHand<small>DEVELOPMENT LAB</small></span></a>
+    <div class="side-label">工作台</div>
+    <div class="nav-item active"><span class="nav-dot"></span>整手与触觉</div>
+    <div class="device-tile"><span class="device-glyph">✋</span><strong>OmniHand 2025</strong><span>O10 · 触觉右手</span><div class="transport" id="transport-caption">USB / CAN FD · 普通触觉</div></div>
+    <div class="scope"><span class="scope-icon">✓</span><div><strong id="control-scope">只读采集 · 控制锁定</strong><p id="control-scope-note">可预览动作；开启控制后才能执行。</p></div></div>
+    <div class="side-bottom"><div class="live-dot"></div>本地工作台<span>v0.1.0</span></div>
+  </aside>
+  <main>
+    <header class="topbar"><div class="breadcrumb">开发工作台 <span>/</span> <span id="transport-breadcrumb">数据验证</span></div><div class="connection"><span id="status-dot" class="status-dot"></span><span id="status-text">未连接</span><span class="readonly" id="session-access">CONTROL LOCKED</span></div></header>
+    <section class="heading"><div><div class="eyebrow">OMNIHAND / LIVE DIGITAL VIEW</div><h1>整只手，一目了然<span class="title-dot">.</span></h1><p>查看整手触觉，预览并执行位置动作。</p></div><div class="connect-controls"><label for="transport-select">连接</label><select id="transport-select" aria-label="通信方式"><option value="usb">USB 直连手</option><option value="canfd">达妙 CAN FD</option><option value="demo">演示数据</option></select><select id="port-select" aria-label="USB 串口"><option value="auto">自动检测</option></select><button id="refresh-ports" class="icon-button" title="刷新串口" aria-label="刷新串口">↻</button><select id="can-channel" aria-label="CAN 物理接口" hidden><option value="1">CAN1</option><option value="2">CAN2</option></select><input id="can-id" aria-label="CAN 节点 ID" value="0x09" maxlength="6" hidden><button id="connect-button" class="primary">连接设备</button></div></section>
+    <div id="notice" class="notice" role="status" hidden></div>
+    <div id="demo-banner" class="demo-banner" hidden>演示模式 · 当前显示合成数据，未连接真实灵巧手。</div>
+    <section class="metrics" aria-label="设备摘要">
+      <article class="metric"><span id="voltage-title">设备供电</span><strong id="voltage">--<small>V</small></strong><div id="voltage-note">等待设备信息</div></article>
+      <article class="metric"><span>最高电机温度</span><strong id="temperature">--<small>℃</small></strong><div id="temperature-note">10 路电机温度</div></article>
+      <article class="metric"><span>触觉测点</span><strong id="point-count">--<small>点</small></strong><div id="region-count">五指 / 手心 / 手背</div></article>
+      <article class="metric"><span>有效位置帧</span><strong id="sequence">0<small>帧</small></strong><div id="last-updated">尚未开始采集</div></article>
+    </section>
+    <section class="panel motion-panel" aria-label="位置控制与预设动作">
+      <div class="panel-heading"><div><span class="section-number">↗</span><h2>动作工作台</h2><span class="badge" id="control-badge">控制已锁定</span></div><div class="motion-power-actions"><span id="motion-power">电机状态待查询</span><button id="control-arm" class="secondary" disabled>开启控制</button><button id="motor-enable" class="secondary" disabled>电机使能</button><button id="motor-disable" class="release-button" hidden>失能 · 释放保持力</button><button id="motion-stop" class="stop-button" disabled>停止并保持</button></div></div>
+      <div class="motion-content"><div class="motion-presets" id="motion-presets" aria-label="预设动作，点击只预览"></div>
+        <div class="motion-target-row"><div class="motion-target-summary"><span class="eyebrow">POSITION TARGET / 选择后预览</span><strong id="motion-target">尚未选择目标</strong><small id="motion-target-values">点击一个手势，只预览，不下发。</small></div><div class="motion-execution"><label>渐变时长 <input id="motion-duration" type="number" min="0.5" max="30" step="0.5" value="4" aria-label="动作渐变时长"> 秒</label><button id="motion-preview" class="secondary" disabled>预览目标</button><button id="motion-measured" class="secondary">显示实测</button><button id="motion-execute" class="primary" disabled>执行目标</button></div></div>
+        <p class="motion-preview-note" id="motion-preview-note">预设与滑块只修改目标。执行前会回读设备状态，并逐步下发位置。</p>
+        <details class="custom-motion"><summary>自定义十轴目标与保存</summary><div class="custom-motion-top"><span>名义范围0–4096，滑块不会直接控制实机。</span><button id="motion-capture" class="secondary" disabled>取当前姿态</button></div><div class="axis-controls" id="axis-controls"></div><div class="save-motion"><input id="motion-name" type="text" maxlength="32" placeholder="给这个动作起个名字" aria-label="自定义动作名称"><button id="motion-save" class="secondary" disabled>保存为预设</button><small>保存在本机 data/actions.local.json</small></div></details>
+        <div class="motion-feedback" role="status"><span id="motion-message">请先连接设备</span><small id="motion-detail">位置目标0–4096，不代表力或力矩。</small><progress id="motion-progress" max="1" value="0" hidden></progress></div>
+      </div><div class="panel-footnote">停止操作会终止后续目标并发送当前位置保持指令，需等待通信应答；不能替代硬件急停。失能会释放保持力。关闭网页不会终止后台动作或切断电源。</div>
+    </section>
+    <section class="visual-workspace">
+      <article class="panel model-panel">
+        <div class="panel-heading"><div><span class="section-number">01</span><h2>整手三维</h2><span class="badge">官方右手 URDF</span></div><span class="model-live" id="model-status">正在加载模型</span></div>
+        <div class="model-toolbar"><div class="camera-buttons"><button class="active" data-camera="palm">掌面</button><button data-camera="back">手背</button><button id="model-fit" title="以当前姿态重新居中和适配视口">居中</button><button id="model-pose" aria-pressed="false" title="只展开网页模型，不向手发送动作">展开查看</button><button id="model-wireframe" aria-pressed="false">线框</button></div><select id="model-region" aria-label="三维选中区域"><option value="ALL">整手</option><option value="THUMB">拇指</option><option value="INDEX">食指</option><option value="MIDDLE">中指</option><option value="RING">无名指</option><option value="LITTLE">小指</option><option value="PALM">手心</option><option value="DORSUM">手背</option></select><select id="model-color" aria-label="模型颜色"><option value="tactile">逐触点热力</option><option value="geometry">机械外观</option></select></div>
+        <div id="hand-viewport"><div class="viewport-label">OMNIHAND 2025 <span>RIGHT / 10 DOA / 16 DOF</span></div><div id="model-loading">正在载入官方几何模型…</div><div id="taxel-tooltip" role="status" hidden></div><div class="viewport-help">拖动旋转 · 滚轮缩放 · 悬停查看每个触点</div><div class="viewport-axis">Z <span>↑</span><small>URDF</small></div></div>
+        <div class="model-caption"><span id="model-selection">等待模型</span><span id="taxel-count">等待逐触点数据</span></div>
+        <details class="model-details"><summary>姿态与触点位置说明</summary><p id="pose-note">主动关节由实测位置换算，被动关节由官方求解器计算。</p><p>每个颜色点对应一个独立读数，点序沿用官方上位机，并投影到模型表面。表面投影不是毫米级标定；“展开查看”只改变网页姿态。</p></details>
+      </article>
+      <article class="panel tactile-panel">
+        <div class="panel-heading"><div><span class="section-number">02</span><h2>全手触觉</h2><span class="badge">七区同时显示</span></div><button id="export-snapshot" class="secondary" disabled>导出快照</button></div>
+        <div class="tactile-toolbar"><strong>原始触觉阵列</strong><div class="taxel-display-options"><label><input id="show-point-indices" type="checkbox" checked>索引</label><label><input id="show-point-values" type="checkbox" checked>数值</label><select id="color-scale" aria-label="触觉颜色范围"><option value="auto">统一自动色阶</option><option value="fixed">固定 0–255</option></select></div></div>
+        <div class="tactile-description" id="tactile-description"></div><div id="raw-status" class="raw-status" role="status"></div>
+        <div id="raw-fingers" class="all-fingers" aria-label="五指全部原始触点"></div>
+        <div id="raw-surfaces" class="all-surfaces" aria-label="手心手背全部原始触点"></div>
+        <div class="color-legend"><span>0</span><div></div><span id="legend-high">255</span><small>统一色阶 / 原始计数</small></div>
+        <aside class="all-point-inspector" aria-label="二维三维联动触点"><div><span class="inspector-label">当前触点</span><strong id="point-index">等待触点</strong></div><strong id="point-value">--</strong><div><p id="point-position">悬停触点查看位置</p><p>读取于 <span id="point-time">--</span></p></div><button id="point-lock" class="point-lock" aria-pressed="false">跟随指针</button></aside>
+        <div class="ordinary-heading"><h3>普通触觉</h3><span id="ordinary-total">等待数据</span><small>与原始阵列分开读取</small></div>
+        <div id="ordinary-overview" class="ordinary-overview" aria-label="七区域全部普通触觉"></div>
+        <div class="panel-footnote">二维点序与不规则轮廓取自官方上位机 2.7.2。三维将同一索引投影到模型表面，精确毫米位置及受力仍需接触标定。</div>
+      </article>
+    </section>
+    <section class="workspace">
+      <div class="left-column">
+        <article class="panel joint-panel"><div class="panel-heading"><div><span class="section-number">03</span><h2>关节状态</h2><span class="badge">10 轴</span></div><span id="error-summary" class="subtle">等待诊断数据</span></div><div class="table-wrap"><table><thead><tr><th>关节</th><th>位置反馈</th><th>解算角 <small>°</small></th><th>电流 <small id="current-unit">mA</small></th><th>温度 <small>℃</small></th><th>状态</th></tr></thead><tbody id="joint-rows"></tbody></table></div><div class="panel-footnote">位置为协议反馈值，名义范围 0–4096；轻微越界值保留原样。<span id="diagnostic-note"></span><span id="diag-age"></span></div></article>
+
+      </div>
+      <div class="right-column">
+        <article class="panel chart-panel"><div class="panel-heading"><div><span class="section-number">04</span><h2>位置变化</h2></div><select id="chart-joint" aria-label="曲线关节"></select></div><canvas id="position-chart" aria-label="所选关节的最近位置曲线"></canvas><div class="chart-caption"><span><i></i>原始位置反馈</span><span>最近 90 帧 · 电脑读取时刻</span></div></article>
+        <div class="support-panels">
+        <article class="panel interface-panel"><div class="panel-heading"><div><span class="section-number">05</span><h2>采集信息</h2></div><span class="badge">READ ONLY</span></div><dl><div><dt>普通触觉</dt><dd id="ordinary-summary">等待数据</dd></div><div><dt>原始触觉</dt><dd id="raw-summary">等待查询</dd></div><div><dt>原始数据完整性</dt><dd id="raw-integrity">等待完整原始帧</dd></div><div><dt>三维姿态</dt><dd>官方求解器 · 6 个被动关节为计算值</dd></div></dl><div class="panel-footnote">原始阵列完整返回后才作为有效帧显示。官方默认规格共 268 点，实机点数以完整回复为准。</div></article>
+        <article class="panel session-panel"><div class="panel-heading"><div><span class="section-number">06</span><h2>本地记录</h2></div><button id="record-button" class="secondary" disabled>开始记录</button></div><p id="record-status">将采样保存为 JSONL，供后续分析。</p><div class="device-versions"><span>设备固件 <b id="firmware">--</b></span><span>通信库 <b id="sdk-version">--</b></span></div><div class="device-versions"><span>连接 <b id="connected-port">--</b></span><span>硬件 <b id="hardware-version">--</b></span></div></article>
+        </div>
+      </div>
+    </section>
+    <footer><span>OmniHand Lab</span><span id="footer-status">等待连接 · 设备始终由一个采集进程访问</span></footer>
+  </main>
+  <script type="module" src="/app.js"></script>
+  <script type="module" src="/hand-viewer.js"></script>
+</body>
+</html>

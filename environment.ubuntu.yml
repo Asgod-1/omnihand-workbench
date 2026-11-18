@@ -1,0 +1,12 @@
+name: omnihand-ubuntu
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - pip>=24
+  - setuptools>=68
+  # The pinned x64 Damiao 1.1.0 library requires GLIBCXX_3.4.32.
+  # Keep these inside the project, rather than changing Ubuntu 22.04 system libs.
+  - libstdcxx-ng=14.2
+  - libgcc-ng=14.2
+  - libusb=1.0

@@ -1,0 +1,9 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {"name": "达妙 CANFD 实机网页（CAN1 / 0x09，默认锁定控制）", "type": "debugpy", "request": "launch", "module": "omnihand_usb", "args": ["dashboard", "--transport", "canfd", "--can-channel", "1", "--can-id", "0x09", "--open"], "cwd": "${workspaceFolder}", "console": "integratedTerminal", "justMyCode": true, "linux": {"env": {"LD_LIBRARY_PATH": "${workspaceFolder}/.venv/lib:${env:LD_LIBRARY_PATH}", "PYTHONUTF8": "1"}}},
+    {"name": "USB 实机网页（默认锁定控制）", "type": "debugpy", "request": "launch", "module": "omnihand_usb", "args": ["dashboard", "--transport", "usb", "--port", "auto", "--open"], "cwd": "${workspaceFolder}", "console": "integratedTerminal", "justMyCode": true, "linux": {"env": {"LD_LIBRARY_PATH": "${workspaceFolder}/.venv/lib:${env:LD_LIBRARY_PATH}", "PYTHONUTF8": "1"}}},
+    {"name": "检查 Python 与 SDK（不连接设备）", "type": "debugpy", "request": "launch", "module": "omnihand_usb", "args": ["check"], "cwd": "${workspaceFolder}", "console": "integratedTerminal", "justMyCode": true, "linux": {"env": {"LD_LIBRARY_PATH": "${workspaceFolder}/.venv/lib:${env:LD_LIBRARY_PATH}", "PYTHONUTF8": "1"}}},
+    {"name": "网页演示（无硬件）", "type": "debugpy", "request": "launch", "module": "omnihand_usb", "args": ["dashboard", "--demo", "--http-port", "8767", "--open"], "cwd": "${workspaceFolder}", "console": "integratedTerminal", "justMyCode": true, "linux": {"env": {"LD_LIBRARY_PATH": "${workspaceFolder}/.venv/lib:${env:LD_LIBRARY_PATH}", "PYTHONUTF8": "1"}}}
+  ]
+}

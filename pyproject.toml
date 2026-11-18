@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnihand-workbench"
+version = "0.1.0"
+description = "USB/CAN FD telemetry, explicit position control and 3D dashboard for OmniHand 2025 O10"
+requires-python = ">=3.10"
+dependencies = ["pyserial==3.5"]
+
+[project.optional-dependencies]
+damiao = ["dmcan-sdk==1.0.4"]
+
+[project.scripts]
+omnihand-workbench = "omnihand_usb.__main__:main"
+omnihand-usb = "omnihand_usb.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+omnihand_usb = ["presets.json", "web/*.html", "web/*.css", "web/*.js", "web/*.svg"]

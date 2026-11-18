@@ -1,0 +1,12 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
+  "python.terminal.activateEnvironment": false,
+  "python-envs.terminal.autoActivationType": "off",
+  "python-envs.workspaceSearchPaths": ["./.venv"],
+  "files.exclude": {"**/__pycache__": true, "**/*.egg-info": true},
+  "terminal.integrated.env.linux": {
+    "PATH": "${workspaceFolder}/.venv/bin:${env:PATH}",
+    "LD_LIBRARY_PATH": "${workspaceFolder}/.venv/lib:${env:LD_LIBRARY_PATH}",
+    "PYTHONUTF8": "1"
+  }
+}

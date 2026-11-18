@@ -1,0 +1,197 @@
+{
+  "schema": 1,
+  "source": "Unmodified omnihand==1.1.11 set_hand_gesture, loopback-only capture",
+  "captured_id": "0x00130181",
+  "encoding": "ten little-endian uint16 positions",
+  "capture_sha256": "3fe1e136fcba51e50066fe3451544090b9289a59291b7d38c45395a13a04355a",
+  "presets": [
+    {
+      "id": "open",
+      "name": "张开手",
+      "icon": "🖐",
+      "hand": "right",
+      "positions": [
+        1924,
+        631,
+        4093,
+        0,
+        4069,
+        4069,
+        0,
+        4069,
+        4096,
+        4069
+      ],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "PAPER",
+      "description": "官方右手位置手势"
+    },
+    {
+      "id": "half_grip",
+      "name": "半握",
+      "icon": "◒",
+      "hand": "right",
+      "positions": [
+        2191,
+        740,
+        2770,
+        0,
+        2058,
+        2058,
+        0,
+        2058,
+        4096,
+        2058
+      ],
+      "source": "project_derived",
+      "description": "张开与握拳1之间的位置中间姿态"
+    },
+    {
+      "id": "fist1",
+      "name": "握拳1",
+      "icon": "✊",
+      "hand": "right",
+      "positions": [
+        2458,
+        849,
+        1446,
+        0,
+        46,
+        46,
+        0,
+        46,
+        4096,
+        46
+      ],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "FIST1",
+      "description": "官方右手位置手势"
+    },
+    {
+      "id": "fist2",
+      "name": "握拳2",
+      "icon": "✊",
+      "hand": "right",
+      "positions": [
+        2209,
+        2545,
+        811,
+        0,
+        46,
+        46,
+        0,
+        46,
+        4096,
+        46
+      ],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "FIST2",
+      "description": "官方右手位置手势"
+    },
+    {
+      "id": "ok",
+      "name": "OK",
+      "icon": "👌",
+      "hand": "right",
+      "positions": [
+        4096,
+        3781,
+        1180,
+        4096,
+        2470,
+        3731,
+        1686,
+        3832,
+        1790,
+        3922
+      ],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "OK",
+      "description": "官方右手位置手势"
+    },
+    {
+      "id": "like",
+      "name": "点赞",
+      "icon": "👍",
+      "hand": "right",
+      "positions": [
+        3028,
+        122,
+        4093,
+        0,
+        46,
+        46,
+        0,
+        46,
+        4096,
+        46
+      ],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "LIKE",
+      "description": "官方右手位置手势"
+    },
+    {
+      "id": "one",
+      "name": "数字1",
+      "icon": "☝",
+      "hand": "right",
+      "positions": [
+        2850,
+        2836,
+        483,
+        1536,
+        4069,
+        46,
+        0,
+        46,
+        4096,
+        46
+      ],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "NUM1",
+      "description": "官方右手位置手势"
+    },
+    {
+      "id": "two",
+      "name": "数字2 / V",
+      "icon": "✌",
+      "hand": "right",
+      "positions": [
+        2280,
+        3757,
+        483,
+        4096,
+        4069,
+        4069,
+        0,
+        46,
+        4096,
+        46
+      ],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "NUM2",
+      "description": "官方右手位置手势"
+    },
+    {
+      "id": "heart",
+      "name": "单手比心",
+      "icon": "♡",
+      "hand": "right",
+      "positions": [
+        1140,
+        1091,
+        2450,
+        0,
+        2535,
+        46,
+        0,
+        46,
+        4096,
+        46
+      ],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "ONE_HANDED_FINGER_HEART",
+      "description": "官方右手位置手势"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "version": "1.1.11",
+  "repository": "AgibotTech/agilink_omnihand_sdk",
+  "release": "https://github.com/AgibotTech/agilink_omnihand_sdk/releases/tag/v1.1.11",
+  "assets": {
+    "windows-x64": {
+      "url": "https://github.com/AgibotTech/agilink_omnihand_sdk/releases/download/v1.1.11/omnihand_sdk_release_win_x64.zip",
+      "sha256": "684441c199f85b8bb602e56c1772af94aac273d761eff7b1f82a0c50c698f583"
+    },
+    "linux-x64": {
+      "url": "https://github.com/AgibotTech/agilink_omnihand_sdk/releases/download/v1.1.11/omnihand_sdk_release_ubuntu22_x64.zip",
+      "sha256": "0c0b89ae90302c77385334adf181d8284e1d12e3e69edec6374de6396f264d36"
+    },
+    "linux-arm64": {
+      "url": "https://github.com/AgibotTech/agilink_omnihand_sdk/releases/download/v1.1.11/omnihand_sdk_release_ubuntu22_aarch64.zip",
+      "sha256": "ea099033f52ea330b28fd74ab8b0203dbfe29a40e3a6f89eb11084d96a86141c"
+    }
+  }
+}
