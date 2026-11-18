@@ -72,11 +72,12 @@ function render(s) {
   const available=Object.values(selection.data).filter(entry=>entry.values?.length).length;
   $('export-snapshot').disabled=!s.connected;
   $('ordinary-summary').textContent=`${Object.values(s.tactile||{}).reduce((n,r)=>n+(r.values?.length||0),0)} 点`;
+  $('ordinary-summary-row').hidden=isCan||s.tactile_policy?.ordinary==='disabled';
   $('raw-summary').textContent=selection.rawLabel;
   const raw=s.raw_tactile||{};
   $('raw-integrity').textContent=raw.status==='ready'?(Number.isInteger(raw.returned_frames)?`${raw.returned_frames} / 5 分包 · 7 / 7 区域`:'7 / 7 区域已完整返回'):'等待完整原始帧';
   valueLabel('point-count',selection.total||null,'点');
-  $('region-count').textContent=available?`原始 ${selection.rawTotal} 点 · 普通 ${selection.ordinaryTotal} 点`:'等待触觉数据';
+  $('region-count').textContent=available?(isCan||s.tactile_policy?.ordinary==='disabled'?`七区域 · 原始 ${selection.rawTotal} 点`:`原始 ${selection.rawTotal} 点 · 普通 ${selection.ordinaryTotal} 点`):'等待触觉数据';
   valueLabel("sequence",s.valid_position_samples || 0,"帧");$("last-updated").textContent=s.positions_at?`位置更新于 ${new Date(s.positions_at).toLocaleTimeString("zh-CN",{hour12:false})}`:"尚未开始采集";
   $("firmware").textContent=device.firmware_version||"--";$("sdk-version").textContent=device.sdk_version||"--";$("hardware-version").textContent=device.hardware_version||"--";$("connected-port").textContent=device.port||"--";
   const reports=diag.motor_errors;
@@ -99,7 +100,7 @@ function render(s) {
   if (s.positions && s.positions_at!==lastPositionTime) { history.push([...s.positions]);if(history.length>90)history.shift();lastPositionTime=s.positions_at; }
   lastSequence=s.sequence;
   drawChart();
-  $("footer-status").textContent=s.connected?`${device.port} · 整手三维 / 位置 / 普通触觉 / 原始接口 · ${s.control?.armed?'位置控制已开启':'控制锁定'}`:"等待连接 · 设备始终由一个采集进程访问";
+  $("footer-status").textContent=s.connected?`${device.port} · 整手三维 / 位置 / ${isCan?'原始触觉':'触觉'} · ${s.control?.armed?'位置控制已开启':'控制锁定'}`:"等待连接 · 设备始终由一个采集进程访问";
   window.dispatchEvent(new CustomEvent('omnihand-state',{detail:{state:s,tactile:selection.data,mode:selection.mode,scale:$('color-scale').value,maximum:selection.maximum}}));
   if (!busy) notice(actionError || (s.errors?.length?s.errors.join("；"):null));
 }

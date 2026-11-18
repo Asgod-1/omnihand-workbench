@@ -17,7 +17,7 @@ sudo bash scripts/setup_udev.sh
 bash Start_CANFD_Dashboard.sh
 ```
 
-网页地址：<http://127.0.0.1:8765/>。启动后软件控制保持锁定，读取位置、普通触觉和完整原始阵列。点击预设只预览，明确执行才发送动作；操作见[CONTROL.md](CONTROL.md)。
+网页地址：<http://127.0.0.1:8765/>。启动后软件控制保持锁定，CAN FD读取位置和完整原始阵列，普通触觉仅在USB模式保留。点击预设只预览，明确执行才发送动作；操作见[CONTROL.md](CONTROL.md)。
 
 安装脚本下载并校验固定版micromamba，在项目`.venv`创建Python 3.13、libusb和C++运行环境，再安装官方SDK 1.1.11、达妙Python包1.0.4/Linux库1.1.0及三维资源。**不更改系统Python、不替换系统C++库、不烧录固件、不连接硬件**。首次下载需要网络；可用`--skip-model`暂时跳过三维资源。
 
@@ -40,7 +40,7 @@ bash scripts/run_python.sh examples/08_position_control.py --preset open
 bash scripts/run_python.sh examples/07_read_raw_from_dashboard.py
 
 # 不接硬件，先检查界面和动作流程
-bash Start_Dashboard.sh --demo --http-port 8767
+bash Start_Demo_Dashboard.sh
 
 # 停止8765工作台
 bash Stop_Dashboard.sh
@@ -54,7 +54,7 @@ from omnihand_usb.control_client import ControlClient
 hand = ControlClient()
 data = hand.state()                     # 最近一次采集快照
 positions = data['positions']           # 十轴位置
-ordinary = data['tactile']['INDEX']['values']
+ordinary = data.get('tactile', {}).get('INDEX', {}).get('values')  # USB普通触觉；CAN FD为None
 raw = data['raw_tactile']
 if raw.get('status') == 'ready':
     index_raw = raw['regions']['INDEX']['values']
@@ -77,6 +77,6 @@ preview = hand.preview(preset='open')    # 计算目标，不向手发送动作
 
 ## 验证范围
 
-66项无实机Python检查通过，覆盖平台选择、库校验、Linux加载分支、ABI结构、安装计划、权限检查及既有控制/读取；5个Bash脚本通过语法检查。官方Linux x64/ARM64库已下载并校验，Windows环境检查通过。
+69项无实机Python检查及10项JavaScript检查通过，覆盖平台选择、库校验、Linux加载分支、ABI结构、安装计划、权限检查、故障复核及触点表面配准。官方Linux x64/ARM64库已下载并校验，Windows环境检查通过。
 
-当前电脑没有可运行的Ubuntu环境，**本次没有在Ubuntu上执行Linux库或做真机通讯测试**。已为GitHub检查指定Ubuntu22.04；远程流程需项目上传后才会运行。迁移后先运行`doctor`，再连接验证位置、130点普通触觉和268点原始阵列。
+当前电脑没有可运行的Ubuntu环境，**本次没有在Ubuntu上执行Linux库或做真机通讯测试**。GitHub检查已配置Ubuntu22.04。迁移后先运行`doctor`和离线演示，再连接验证位置与268点原始阵列；USB模式另验证130点普通触觉。

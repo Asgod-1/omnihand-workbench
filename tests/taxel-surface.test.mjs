@@ -46,6 +46,20 @@ test('all 268 official indices have unique finite locations on the official STL 
   assert.ok(result.rayHits>=250,'Most cells must project directly, without boundary fallback');
 });
 
+test('taxels remain on the textured fingertip caps and the rear sensing pad',{skip:!available},()=>{
+  for(const group of layer.groups){
+    for(const p of group.placement){
+      assert.equal(p.method,'ray-surface',group.region+' must not fall back onto a mechanical vertex');
+      if(['INDEX','MIDDLE','RING','LITTLE'].includes(group.region))assert.ok(p.position.z>.020,'No taxel on fingertip hinge');
+      if(group.region==='THUMB')assert.ok(p.position.x>.013,'Thumb taxel stays on the printed cap');
+      if(group.region==='DORSUM'){
+        assert.ok(p.position.x<-.034);
+        assert.ok(Math.hypot(p.position.y,p.position.z-.06333)<.0237,'Rear taxel stays inside the sensing disk');
+      }
+    }
+  }
+});
+
 test('finger taxels follow the real URDF joint while the dorsal patch stays on the palm',{skip:!available},()=>{
   scene.updateMatrixWorld(true);
   const finger=layer.groups.find(g=>g.region==='INDEX'),back=layer.groups.find(g=>g.region==='DORSUM');

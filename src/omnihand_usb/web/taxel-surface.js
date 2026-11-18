@@ -3,16 +3,19 @@ import {REGIONS,REGION_NAMES,tactileLayout,tactileColor} from '/tactile-layout.j
 
 // Visual registration regions in URDF mesh coordinates (metres).
 // The official ToolBox supplies index topology, not these metric coordinates.
-// Project onto the actual mesh; a physical contact calibration can refine ROIs.
+// Bounds fitted to the textured fingertip pads, L-shaped palm and rear pad.
+// The grooves locate the sensing PATCH; individual cell centres need calibration.
 export const SURFACE_REGISTRATION={
-  THUMB:{link:'R_thumb_dip_link',normalAxis:2,sign:1,longAxis:0,crossAxis:1,long:[.002,.021],cross:[-.004,.008],radius:.00145},
-  INDEX:{link:'R_index_dip_link',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.003,.034],cross:[-.0044,.0044],radius:.00165},
-  MIDDLE:{link:'R_middle_dip_link',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.003,.034],cross:[-.0044,.0044],radius:.00165},
-  RING:{link:'R_ring_dip_link',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.003,.034],cross:[-.0044,.0044],radius:.00165},
-  LITTLE:{link:'R_pinky_dip_link',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.003,.034],cross:[-.0044,.0044],radius:.00165},
-  PALM:{link:'R_palm',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.020,.092],cross:[-.035,.030],radius:.00155},
-  DORSUM:{link:'R_palm',normalAxis:0,sign:-1,longAxis:2,crossAxis:1,long:[.022,.087],cross:[-.034,.032],radius:.00185}
+  THUMB:{link:'R_thumb_dip_link',normalAxis:2,sign:1,longAxis:0,crossAxis:1,long:[.0145,.0225],cross:[-.0018,.0045],radius:.00045,radiusLong:.00045,radiusCross:.0017},
+  INDEX:{link:'R_index_dip_link',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.0215,.0355],cross:[-.0034,.0034],radius:.00068,radiusLong:.00068,radiusCross:.0025},
+  MIDDLE:{link:'R_middle_dip_link',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.0215,.0355],cross:[-.0034,.0034],radius:.00068,radiusLong:.00068,radiusCross:.0025},
+  RING:{link:'R_ring_dip_link',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.0215,.0355],cross:[-.0034,.0034],radius:.00068,radiusLong:.00068,radiusCross:.0025},
+  LITTLE:{link:'R_pinky_dip_link',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.0215,.0355],cross:[-.0034,.0034],radius:.00068,radiusLong:.00068,radiusCross:.0025},
+  PALM:{link:'R_palm',normalAxis:0,sign:1,longAxis:2,crossAxis:1,long:[.027,.098],cross:[-.034,.034],radius:.0015,radiusLong:.0016,radiusCross:.0015},
+  DORSUM:{link:'R_palm',normalAxis:0,sign:-1,longAxis:2,crossAxis:1,long:[.043,.0835],cross:[-.0215,.0215],radius:.0012}
 };
+
+function markerScale(object,spec,factor=1){object.scale.set((spec.radiusLong||spec.radius)*factor,(spec.radiusCross||spec.radius)*factor,1);}
 
 function targetFor(point,spec){
   const p=new THREE.Vector3();
@@ -57,7 +60,7 @@ export class SurfaceTaxels{
   constructor(meshes,host){
     this.meshes=meshes;this.host=host;this.groups=[];this.pickables=[];this.signature='';this.selection=null;this.projected=new Map();
     this.circle=new THREE.CircleGeometry(1,18);this.ringGeometry=new THREE.RingGeometry(1.10,1.36,24);
-    this.markerMaterial=new THREE.MeshBasicMaterial({vertexColors:false,side:THREE.FrontSide,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-2});
+    this.markerMaterial=new THREE.MeshBasicMaterial({vertexColors:false,side:THREE.FrontSide,toneMapped:false,transparent:true,opacity:.87,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2});
     this.borderMaterial=new THREE.MeshBasicMaterial({color:'#274d70',side:THREE.FrontSide,toneMapped:false});
     this.highlight=new THREE.Mesh(this.ringGeometry,new THREE.MeshBasicMaterial({color:'#ffc666',side:THREE.DoubleSide,toneMapped:false}));
     this.highlight.visible=false;this.dummy=new THREE.Object3D();this.color=new THREE.Color();
@@ -84,11 +87,11 @@ export class SurfaceTaxels{
         points.instanceMatrix.setUsage(THREE.StaticDrawUsage);points.frustumCulled=false;border.frustumCulled=false;
         points.userData={taxels:true,region,source:mode,placement};points.name=region+'-taxels';border.name=region+'-taxel-borders';
         placement.forEach((p,i)=>{
-          this.dummy.position.copy(p.position).addScaledVector(p.normal,.00055);
+          this.dummy.position.copy(p.position).addScaledVector(p.normal,.00022);
           this.dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),p.normal);
-          this.dummy.scale.setScalar(spec.radius);this.dummy.updateMatrix();points.setMatrixAt(i,this.dummy.matrix);
-          this.dummy.position.copy(p.position).addScaledVector(p.normal,.00043);
-          this.dummy.scale.setScalar(spec.radius*1.14);this.dummy.updateMatrix();border.setMatrixAt(i,this.dummy.matrix);
+          markerScale(this.dummy,spec);this.dummy.updateMatrix();points.setMatrixAt(i,this.dummy.matrix);
+          this.dummy.position.copy(p.position).addScaledVector(p.normal,.00016);
+          markerScale(this.dummy,spec,1.10);this.dummy.updateMatrix();border.setMatrixAt(i,this.dummy.matrix);
         });
         mesh.add(border,points);this.groups.push({region,mesh,points,border,placement,spec});this.pickables.push(points);
       }
@@ -105,7 +108,7 @@ export class SurfaceTaxels{
       }
       if(group.points.instanceColor)group.points.instanceColor.needsUpdate=true;
     }
-    Object.assign(this.host.dataset,{taxelCount:String(count),taxelSource:mode,taxelRayHits:String(rayHits),taxelFallbacks:String(fallbacks),taxelFresh:String(freshCount),taxelMapping:'official-index-surface-registration'});
+    Object.assign(this.host.dataset,{taxelCount:String(count),taxelSource:mode,taxelRayHits:String(rayHits),taxelFallbacks:String(fallbacks),taxelFresh:String(freshCount),taxelMapping:'groove-patch-registration'});
     this.visible=visible;this.refreshSelection();
     return {count,rayHits,fallbacks,freshCount};
   }
@@ -114,8 +117,8 @@ export class SurfaceTaxels{
     const p=this.selection,group=this.groups.find(g=>g.region===p?.region),placement=group?.placement[p?.index];
     this.highlight.visible=!!placement&&this.visible&&p.source===this.mode;
     if(!this.highlight.visible)return;
-    group.mesh.add(this.highlight);this.highlight.position.copy(placement.position).addScaledVector(placement.normal,.0009);
-    this.highlight.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),placement.normal);this.highlight.scale.setScalar(group.spec.radius);
+    group.mesh.add(this.highlight);this.highlight.position.copy(placement.position).addScaledVector(placement.normal,.0004);
+    this.highlight.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),placement.normal);markerScale(this.highlight,group.spec);
   }
   pick(raycaster,screen){
     if(!this.visible)return null;
@@ -128,7 +131,7 @@ export class SurfaceTaxels{
       const cameraPosition=new THREE.Vector3();screen.camera.getWorldPosition(cameraPosition);
       const candidates=[];
       for(const group of this.groups)for(const p of group.placement){
-        const world=group.mesh.localToWorld(p.position.clone().addScaledVector(p.normal,.00055));
+        const world=group.mesh.localToWorld(p.position.clone().addScaledVector(p.normal,.00022));
         const normal=p.normal.clone().transformDirection(group.mesh.matrixWorld);
         if(normal.dot(cameraPosition.clone().sub(world))<=0)continue;
         const projected=world.clone().project(screen.camera);if(projected.z<-1||projected.z>1)continue;

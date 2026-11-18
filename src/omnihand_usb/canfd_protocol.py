@@ -31,7 +31,7 @@ def positions(payload):
 
 
 def current_raw(payload):
-    return list(struct.unpack("<10H", response_body(payload, 0x0A, 20)))
+    return list(struct.unpack("<10h", response_body(payload, 0x0A, 20)))
 
 
 def temperatures(payload):

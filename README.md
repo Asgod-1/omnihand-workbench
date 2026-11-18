@@ -7,7 +7,7 @@
 ## 功能
 
 - 读取十轴位置、温度、电流原始数据及错误状态，支持JSONL记录。
-- 同时显示七区域普通130点与原始268点触觉，保持两类数据独立。
+- CAN FD只读取并显示七区域原始268点；USB保留普通130点读取。
 - 官方右手URDF、关节解算与逐触点三维投影；二维采用官方上位机点序。
 - 九个预设动作、十轴目标编辑、三维预览、自定义保存、渐变执行与停止保持。
 - 网页和Python客户端共用一个设备访问线程；连接后默认锁定控制。
@@ -28,7 +28,7 @@ bash Start_CANFD_Dashboard.sh
 不接硬件时可启动演示：
 
 ```bash
-bash Start_Dashboard.sh --demo --http-port 8767
+bash Start_Demo_Dashboard.sh
 ```
 
 详细步骤及USB接入见[Ubuntu说明](docs/UBUNTU.md)。**不要从Windows复制`.venv`到Ubuntu。**
@@ -45,6 +45,8 @@ python scripts/bootstrap.py --download-sdk
 ```
 
 USB直连可用`Start_Dashboard.cmd`；停止服务用`Stop_Dashboard.cmd`。VS Code打开`omnihand-workbench.code-workspace`。
+
+暂不连接实机时，双击`Start_Demo_Dashboard.cmd`，在 <http://127.0.0.1:8765/> 使用模拟位置、原始268点及预设动作。Ubuntu使用`bash Start_Demo_Dashboard.sh`；VS Code默认调试项也是无硬件演示。
 
 ## Python接口
 
@@ -83,8 +85,8 @@ vendor/              SDK、动态库、几何资源缓存（不提交）
 ## 验证与限制
 
 - 已验证Windows上O10手FW1.2.14、达妙双路板FW1.0.0.7、CAN1、私有节点`0x09`及原始触觉公有ID`1`的读取。
-- 66项Python检查及9项触觉/三维检查已在开发机通过；CI配置Windows与Ubuntu22.04。Ubuntu本地库和真机通讯尚待Ubuntu实测。
-- 动作流程在演示设备验证，尚未做实机运动验证；目前提供位置控制。停止依赖通讯应答，不能替代硬件急停；失能会释放保持力。
+- 当前软件检查覆盖控制故障复核、原始触觉、传感垫投影及跨平台加载；CI配置Windows与Ubuntu22.04，Ubuntu真机通讯仍待实测。
+- 位置控制已通过实机应答及保持验证，负载抓取仍待验证。停止依赖通讯应答，不能替代硬件急停；失能会释放保持力。
 - 三维触点是按索引进行的表面配准，尚未做毫米位置或受力标定。
 
 运行检查：`python -m unittest discover -s tests -v`。Ubuntu请用`bash scripts/run_python.sh -m unittest discover -s tests -v`。

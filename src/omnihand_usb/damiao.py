@@ -145,7 +145,14 @@ class _NativeDamiaoHand:
 
     def set_positions(self, positions):
         from .motion_protocol import position_payload,position_reply
-        return position_reply(self._exchange(position_payload(positions)))
+        result=position_reply(self._exchange(position_payload(positions)))
+        # FW1.2.14 returns nonzero trailing status bytes even with 0x0D=0.
+        # Keep those bytes as evidence, not independently verified axis faults.
+        # Always require a fresh documented aggregate-error reply after the ACK.
+        try:code=protocol.error_code(self._query(0x0D))
+        except Exception as exc:raise RuntimeError(f'位置应答已收到，但设备故障复核失败：{exc}') from exc
+        result.update(faults=None,hand_error_code=code,fault_check='private_0x0d')
+        return result
 
     def get_power_state(self):
         from .motion_protocol import power_state

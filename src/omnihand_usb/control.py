@@ -217,7 +217,10 @@ class MotionController:
         self._update(write_attempted=True)
         result=device.set_positions(target_vector(positions))
         if not isinstance(result,dict) or len(result.get('positions',[]))!=10:raise RuntimeError('设备未返回完整的位置指令应答')
-        self._record('position_acknowledged',target=list(positions),positions=result['positions'],faults=result.get('faults'))
+        self._record('position_acknowledged',target=list(positions),positions=result['positions'],faults=result.get('faults'),
+            ack_status_raw=result.get('ack_status_raw'),hand_error_code=result.get('hand_error_code'),
+            fault_check=result.get('fault_check'),response_hex=result.get('response_hex'))
+        if result.get('hand_error_code',0):raise RuntimeError(f"位置指令后设备报告故障 0x{result['hand_error_code']:04X}，动作已停止下发")
         if any(result.get('faults') or []):raise RuntimeError('位置应答中存在轴故障，动作已停止下发')
         self._feedback=list(result['positions']);self._feedback_at=time.monotonic()
         return result

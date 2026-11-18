@@ -138,6 +138,7 @@ class DemoHand:
     mode = "demo"
     port = "DEMO"
     control_capabilities = ('position','power','hold')
+    ordinary_tactile_enabled = False
 
     def __init__(self, *args, **kwargs):
         self.info = {"model": "演示设备（非实机）", "port": "DEMO", "hand": "right", "transport": "DEMO", "dof": 10, "hardware_version": "demo", "firmware_version": "demo", "voltage_mv": None, "sdk_version": "not required"}
@@ -169,6 +170,13 @@ class DemoHand:
     def tactile(self, region):
         count = 25 if region in ("PALM", "DORSUM") else 16
         return [max(0, int(75 * math.sin(time.monotonic() * .5 + i * .4 + REGIONS.index(region)) - 15)) for i in range(count)]
+
+    def raw_tactile(self):
+        from .raw_bridge import EXPECTED_COUNTS
+        from datetime import datetime
+        regions={name:{'values':[max(0,round(90*math.sin(time.monotonic()*.4+i*.15+n)-35)) for i in range(count)]} for n,(name,count) in enumerate(EXPECTED_COUNTS.items())}
+        return {'status':'ready','regions':regions,'sampled_at':datetime.now().astimezone().isoformat(timespec='milliseconds'),
+                'returned_frames':5,'region_count':7,'simulated':True,'decoder':'demo','error':None}
 
     def diagnostics(self):
         return {"current_ma": [12 + i * 3 for i in range(10)], "temperature_c": [30 + i % 5 for i in range(10)], "motor_errors": [{k: False for k in ERROR_FIELDS} for _ in range(10)]}, []

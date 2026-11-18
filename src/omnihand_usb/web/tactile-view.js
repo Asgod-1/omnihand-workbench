@@ -46,9 +46,11 @@ export class TactilePanel{
   }
   render(state){
     const raw=state.raw_tactile||{},rawData=raw.status==='ready'?Object.fromEntries(Object.entries(raw.regions||{}).map(([k,v])=>[k,{...v,sampled_at:raw.sampled_at}])):{};
-    const ordinary=state.tactile||{};this.state=state;this.dataByMode={raw:rawData,ordinary};
+    const ordinaryEnabled=state.mode!=='canfd'&&state.tactile_policy?.ordinary!=='disabled';
+    const ordinary=ordinaryEnabled?(state.tactile||{}):{};this.state=state;this.dataByMode={raw:rawData,ordinary};
+    $('ordinary-block').hidden=!ordinaryEnabled;
     const rawTotal=Object.values(rawData).reduce((n,e)=>n+(e.values?.length||0),0),ordinaryTotal=Object.values(ordinary).reduce((n,e)=>n+(e.values?.length||0),0);
-    this.mode=rawTotal?'raw':'ordinary';this.data=this.dataByMode[this.mode];
+    this.mode=rawTotal||!ordinaryEnabled?'raw':'ordinary';this.data=this.dataByMode[this.mode];
     this.maximum=$('color-scale').value==='fixed'?255:Math.max(8,...Object.values(this.dataByMode).flatMap(data=>Object.values(data).flatMap(e=>e.values||[])));
     const rawLabel=statusNames[raw.status]||'等待原始数据';
     $('raw-status').className='raw-status'+(raw.status==='ready'?' ready':'');

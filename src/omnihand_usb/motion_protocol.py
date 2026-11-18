@@ -33,7 +33,8 @@ def position_reply(payload):
     body=response_body(payload,0x08,60)
     return {'positions':list(struct.unpack('<10H',body[:20])),
             'velocities_raw':list(struct.unpack('<10h',body[20:40])),
-            'torques_raw':list(body[40:50]),'faults':list(body[50:60])}
+            'feedback_raw':list(body[40:50]),'ack_status_raw':list(body[50:60]),
+            'response_hex':bytes(payload).hex()}
 
 
 def power_reply(payload):

@@ -20,6 +20,8 @@ def now_iso():
 def read_sample(device, *, tactile=True, diagnostics=True, pose_solver=None, between_reads=None):
     """Each reply keeps a timestamp; failures are not replaced with zero arrays."""
     sample = {"sampled_at": now_iso(), "errors": [], "tactile": {}}
+    ordinary=getattr(device,'ordinary_tactile_enabled',getattr(device,'mode','usb')!='canfd')
+    sample['tactile_policy']={'ordinary':'enabled' if ordinary else 'disabled','raw':'enabled' if hasattr(device,'raw_tactile') else 'unavailable'}
     try:
         sample["positions"] = device.positions()
         sample['positions_at'] = now_iso()
@@ -46,7 +48,7 @@ def read_sample(device, *, tactile=True, diagnostics=True, pose_solver=None, bet
         else:
             sample['raw_tactile'] = {'status':'unavailable','regions':{},'error':'当前连接后端未提供原始触觉读取；普通触觉独立显示。'}
         if between_reads:between_reads()
-        for region in REGIONS:
+        for region in REGIONS if ordinary else ():
             entry = {"name": REGION_NAMES[region], "sampled_at": now_iso()}
             try:
                 entry["values"] = device.tactile(region)
@@ -116,6 +118,7 @@ class Monitor:
                 self._pose_solver = None
             self._stop = threading.Event()
             self.control.bind(device,device.mode,hand_type)
+            with self._state_lock:self._state['tactile_policy']={'ordinary':'enabled' if getattr(device,'ordinary_tactile_enabled',mode!='canfd') else 'disabled'}
             self._published_control_feedback = 0.0
             with self._state_lock:
                 self._state.update(connected=True, mode=device.mode, device=info, sequence=0, valid_position_samples=0, positions=None, positions_at=None, pose=None,raw_tactile={},diagnostics={}, tactile={}, errors=[])
@@ -184,7 +187,9 @@ class Monitor:
                     if key != "sampled_at":
                         s["diagnostics"][key] = value
                         s["diagnostics"][key + "_at"] = sample["diagnostics"]["sampled_at"]
-            s["tactile"].update(sample["tactile"])
+            if 'tactile_policy' in sample:s['tactile_policy']=sample['tactile_policy']
+            if s.get('tactile_policy',{}).get('ordinary')=='disabled':s['tactile']={}
+            else:s["tactile"].update(sample["tactile"])
 
     def _run(self, device, stop):
         last_touch = last_diag = next_sample = 0.0

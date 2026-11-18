@@ -95,9 +95,9 @@ export class MotionPanel{
     $('motion-execute').disabled=!fresh||!c.armed||c.power_state===0||c.running||pending||!valid(this.target)||!durationOK;
     $('motion-preview').disabled=!valid(this.target)||c.running;$('motion-save').disabled=!valid(this.target)||c.running;$('motion-capture').disabled=!fresh||c.running;
     document.querySelectorAll('.preset-card').forEach(b=>b.disabled=!!c.running);document.querySelectorAll('#axis-controls input').forEach(input=>input.disabled=!!c.running||!this.target);
-    $('motion-progress').value=c.progress||0;$('motion-progress').hidden=!c.motion_id;
+    $('motion-progress').value=c.progress||0;$('motion-progress').hidden=!c.motion_id||(!c.running&&c.status!=='completed');
     $('motion-message').textContent=this.error||c.error||c.message||'请先连接设备';$('motion-message').classList.toggle('bad',!!this.error||!!c.error);
-    $('motion-detail').textContent=c.motion_id?`${c.name} · ${Math.round((c.progress||0)*100)}% · 渐变至少 ${c.effective_duration}s${c.log_path?' · '+c.log_path:''}`:'位置目标0–4096 · 单次步长≤80 · 最快10次/秒 · 不代表力或力矩';
+    $('motion-detail').textContent=c.motion_id?`${c.running?'执行中':c.status==='completed'?'已完成':'上次动作'}：${c.name} · ${Math.round((c.progress||0)*100)}% · 渐变至少 ${c.effective_duration}s`:'位置目标0–4096 · 单次步长≤80 · 最快10次/秒 · 不代表力或力矩';
     if(c.running)$('motion-preview-note').textContent='动作正在执行，三维显示实际反馈。';
   }
 }

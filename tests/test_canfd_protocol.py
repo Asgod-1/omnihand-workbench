@@ -28,6 +28,7 @@ class CanFdContractTests(unittest.TestCase):
 
     def test_current_stays_raw_and_temperature_is_signed(self):
         self.assertEqual(protocol.current_raw(b"\x0a" + struct.pack("<10H", *([9] * 10)) + bytes(3)), [9] * 10)
+        self.assertEqual(protocol.current_raw(b'\x0a'+struct.pack('<10h',*([-2,-40]+[9]*8))+bytes(3)),[-2,-40]+[9]*8)
         self.assertEqual(protocol.temperatures(b"\x0c" + bytes([255] + [30] * 9) + bytes(1)), [-1] + [30] * 9)
 
     def test_variant_and_versions_are_decoded_and_other_models_rejected(self):

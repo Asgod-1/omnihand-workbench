@@ -45,7 +45,8 @@ class MotionCodecTests(unittest.TestCase):
     def test_feedback_is_decoded_without_clamping_and_bad_ack_is_rejected(self):
         payload=b'\x08'+struct.pack('<10H',*([4116]*10))+struct.pack('<10h',*([-2]*10))+bytes(range(10))+bytes([1]+[0]*9)+bytes(3)
         reply=codec.position_reply(payload)
-        self.assertEqual(reply['positions'],[4116]*10);self.assertEqual(reply['velocities_raw'],[-2]*10);self.assertEqual(reply['faults'][0],1)
+        self.assertEqual(reply['positions'],[4116]*10);self.assertEqual(reply['velocities_raw'],[-2]*10);self.assertEqual(reply['ack_status_raw'][0],1)
+        self.assertNotIn('faults',reply)
         for bad in (payload[:60],b'\x09'+payload[1:]):
             with self.assertRaises(ValueError):codec.position_reply(bad)
         with self.assertRaises(RuntimeError):codec.power_reply(b'\x01\x00')
@@ -66,6 +67,18 @@ class MotionCodecTests(unittest.TestCase):
         self.assertEqual([c.args[0] for c in hand._exchange.call_args_list],[b'\x01\x01',b'\x02'])
         hand._exchange=Mock(side_effect=[b'\x01\x01',b'\x02\x00'])
         with self.assertRaises(RuntimeError):hand.set_enabled(True)
+
+    def test_real_firmware_status_pattern_is_cross_checked_not_a_false_axis_fault(self):
+        hand=_NativeDamiaoHand('.')
+        hand._exchange=Mock(return_value=b'\x08'+struct.pack('<10H',*([2000]*10))+bytes(30)+bytes([1,0,0,0,1,0,0,0,1,0])+bytes(3))
+        hand._query=Mock(return_value=b'\x0d\x00\x00')
+        result=hand.set_positions([2000]*10)
+        self.assertEqual(result['hand_error_code'],0);self.assertIsNone(result['faults'])
+        self.assertEqual(result['ack_status_raw'],[1,0,0,0,1,0,0,0,1,0]);hand._query.assert_called_once_with(0x0D)
+        hand._query.return_value=b'\x0d\x01\x00'
+        self.assertEqual(hand.set_positions([2000]*10)['hand_error_code'],1)
+        hand._query.side_effect=TimeoutError('no diagnostic reply')
+        with self.assertRaisesRegex(RuntimeError,'故障复核失败'):hand.set_positions([2000]*10)
 
 
 class ControllerTests(unittest.TestCase):
@@ -144,6 +157,14 @@ class ControllerTests(unittest.TestCase):
         self.ready();self.call('move',positions=[0]*10,duration=1);self.hand.fault=True
         self.controller._plan.began-=3;self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand)
         self.assertFalse(self.controller.snapshot()['armed']);self.assertIn('故障',self.controller.snapshot()['error'])
+
+    def test_verified_device_error_still_stops_even_when_ack_tail_is_zero(self):
+        self.ready();self.call('move',positions=[0]*10,duration=1)
+        self.hand.set_positions=Mock(return_value={'positions':[100]*10,'faults':None,'ack_status_raw':[0]*10,'hand_error_code':21})
+        self.controller._plan.began-=3;self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand)
+        self.assertFalse(self.controller.snapshot()['armed']);self.assertIn('0x0015',self.controller.snapshot()['error'])
+        for _ in range(3):self.controller.tick(self.hand)
+        self.hand.set_positions.assert_called_once()
 
     def test_stale_session_is_rejected_and_left_hand_does_not_get_right_presets(self):
         with self.assertRaisesRegex(RuntimeError,'会话'):self.controller.request('arm',{'session_id':'old'})

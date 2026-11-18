@@ -111,12 +111,13 @@ function update(){
     }
     if(modelReady && !poseFitted){poseFitted=true;fitModel(false);}
   }
-  const fresh=s.connected && Date.now()-Date.parse(s.positions_at)<3000;
-  status.textContent=targetPreview?`动作预览：${targetPreview.name} · 尚未下发`:unfolded?'展开示意 · 触觉仍为实测':fresh && pose?.joints_rad?'实测位置 → 官方关节解算':!s.connected?(pose?.joints_rad?'已断开 · 保留最后姿态':'未连接 · 模型零位'):pose?.error||'等待关节反馈';
-  status.classList.toggle('model-pose-hint',unfolded||!!targetPreview);host.dataset.poseMode=targetPreview?'action-preview':unfolded?'unfolded-display':'measured';
+  const fresh=s.connected && Date.now()-Date.parse(s.positions_at)<3000,simulated=s.mode==='demo';
+  document.getElementById('model-pose').textContent=unfolded?(simulated?'恢复模拟':'恢复实测'):'展开查看';
+  status.textContent=targetPreview?`动作预览：${targetPreview.name} · 尚未下发`:unfolded?`展开示意 · 触觉为${simulated?'模拟数据':'实测'}`:fresh && pose?.joints_rad?`${simulated?'模拟':'实测'}位置 → 官方关节解算`:!s.connected?(pose?.joints_rad?'已断开 · 保留最后姿态':'未连接 · 模型零位'):pose?.error||'等待关节反馈';
+  status.classList.toggle('model-pose-hint',unfolded||!!targetPreview);host.dataset.poseMode=targetPreview?'action-preview':unfolded?'unfolded-display':simulated?'simulated':'measured';
   status.classList.toggle('live',!targetPreview&&!!fresh && !!pose?.joints_rad);
   const clipped=pose?.clamped_for_display||[];
-  document.getElementById('pose-note').textContent=targetPreview?'当前显示目标动作预览，未下发；三维触觉暂隐藏，二维仍显示采集值。':'主动关节由实测电机位置换算，被动关节由官方求解器计算。'+(clipped.length?`轴 ${clipped.join('、')} 轻微越界，仅三维输入限幅；原始反馈保留。`:'');
+  document.getElementById('pose-note').textContent=targetPreview?'当前显示目标动作预览，未下发；三维触觉暂隐藏，二维仍显示当前读数。':`主动关节由${simulated?'模拟':'实测'}电机位置换算，被动关节由官方求解器计算。`+(clipped.length?`轴 ${clipped.join('、')} 轻微越界，仅三维输入限幅；原始反馈保留。`:'');
   paint();
 }
 
@@ -242,7 +243,7 @@ document.getElementById('model-fit').addEventListener('click',()=>fitModel(true)
 document.getElementById('model-pose').addEventListener('click',event=>{
   targetPreview=null;
   unfolded=!unfolded;poseFitted=false;event.currentTarget.setAttribute('aria-pressed',String(unfolded));
-  event.currentTarget.classList.toggle('active',unfolded);event.currentTarget.textContent=unfolded?'恢复实测':'展开查看';update();fitModel(true);
+  event.currentTarget.classList.toggle('active',unfolded);update();fitModel(true);
 });
 document.getElementById('model-wireframe').addEventListener('click',event=>{wireframe=!wireframe;event.currentTarget.classList.toggle('active',wireframe);event.currentTarget.setAttribute('aria-pressed',String(wireframe));paint();});
 initialize();
