@@ -9,7 +9,7 @@ import urllib.error
 import urllib.request
 
 from .motion_protocol import target_vector
-from .control import duration_value
+from .control import duration_value,execution_mode_value
 
 
 class ControlClient:
@@ -51,8 +51,11 @@ class ControlClient:
     def disable(self):return self._action('disable')
     def stop(self):return self._action('stop')
     def lock(self):return self._action('lock')
-    def move(self,*,preset=None,positions=None,duration=4):
-        return self._action('move',duration=duration_value(duration),**self._target(preset,positions))
+    def move(self,*,preset=None,positions=None,mode='direct',duration=4):
+        """Send one full target by default; duration applies only to mode='smooth'."""
+        body={'execution_mode':execution_mode_value(mode),**self._target(preset,positions)}
+        if mode=='smooth':body['duration']=duration_value(duration)
+        return self._action('move',**body)
 
     def wait(self,motion_id,timeout=45):
         deadline=time.monotonic()+timeout

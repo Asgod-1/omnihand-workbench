@@ -93,14 +93,30 @@ class HttpContractTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError,'arm'):client.move(positions=[0]*10)
         client.arm();client.enable()
         current=client.state()['positions'];target=[v-20 for v in current]
-        result=client.move(positions=target,duration=.5)
+        result=client.move(positions=target)
+        self.assertEqual(result['execution_mode'],'direct')
         final=client.wait(result['motion_id'],timeout=4)
         self.assertEqual(final['status'],'completed')
         self.assertEqual(client.state()['positions'],target)
         client.disable();self.assertFalse(client.state()['control']['armed'])
         log=Path(self.temp.name)/final['log_path']
-        events=[json.loads(line)['event'] for line in log.read_text(encoding='utf-8').splitlines()]
+        records=[json.loads(line) for line in log.read_text(encoding='utf-8').splitlines()]
+        events=[r['event'] for r in records]
         self.assertIn('position_acknowledged',events);self.assertIn('motion_completed',events)
+        motion_records=records[events.index('motion_started'):events.index('motion_completed')+1]
+        self.assertEqual([r['target'] for r in motion_records if r['event']=='position_acknowledged'],[target])
+
+    def test_python_client_can_explicitly_select_smooth_mode(self):
+        self.monitor.connect(demo=True);client=ControlClient(self.server.server_port)
+        client.arm();client.enable()
+        try:
+            target=[v-20 for v in client.state()['positions']]
+            result=client.move(positions=target,mode='smooth',duration=.5)
+            self.assertEqual(result['execution_mode'],'smooth')
+            self.assertEqual(client.wait(result['motion_id'],timeout=4)['status'],'completed')
+            with self.assertRaises(ValueError):client.move(positions=target,mode='smooth',duration=0)
+            with self.assertRaises(ValueError):client.move(positions=target,mode='unknown')
+        finally:client.lock()
 
 
 if __name__ == "__main__":

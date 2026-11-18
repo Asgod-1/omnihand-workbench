@@ -77,6 +77,6 @@ preview = hand.preview(preset='open')    # 计算目标，不向手发送动作
 
 ## 验证范围
 
-69项无实机Python检查及10项JavaScript检查通过，覆盖平台选择、库校验、Linux加载分支、ABI结构、安装计划、权限检查、故障复核及触点表面配准。官方Linux x64/ARM64库已下载并校验，Windows环境检查通过。
+76项无实机Python检查通过，JavaScript检查覆盖网页发送方式及触点表面配准；同时覆盖平台选择、库校验、Linux加载分支、ABI结构、安装计划、权限检查和故障复核。官方Linux x64/ARM64库已下载并校验，Windows环境检查通过。
 
 当前电脑没有可运行的Ubuntu环境，**本次没有在Ubuntu上执行Linux库或做真机通讯测试**。GitHub检查已配置Ubuntu22.04。迁移后先运行`doctor`和离线演示，再连接验证位置与268点原始阵列；USB模式另验证130点普通触觉。

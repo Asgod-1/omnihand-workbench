@@ -13,7 +13,8 @@ def main():
     parser=argparse.ArgumentParser(description='OmniHand position preview/control through local dashboard')
     parser.add_argument('--port',type=int,default=8765)
     parser.add_argument('--preset',default='open')
-    parser.add_argument('--duration',type=float,default=4)
+    parser.add_argument('--mode',choices=('direct','smooth'),default='direct',help='Send one full target (default), or interpolate on the host')
+    parser.add_argument('--duration',type=float,default=4,help='Host interpolation duration; only used with --mode smooth')
     parser.add_argument('--execute',action='store_true',help='Actually execute the selected position target')
     parser.add_argument('--enable-motors',action='store_true',help='Explicitly enable motors before executing (CAN FD/demo only)')
     args=parser.parse_args();client=ControlClient(args.port)
@@ -24,7 +25,7 @@ def main():
     client.arm()
     try:
         if args.enable_motors:client.enable()
-        result=client.move(preset=args.preset,duration=args.duration)
+        result=client.move(preset=args.preset,mode=args.mode,duration=args.duration)
         result=client.wait(result['motion_id'])
         print(json.dumps(result,ensure_ascii=False,indent=2))
     finally:

@@ -17,7 +17,7 @@ import time
 
 from .motion_protocol import target_vector
 
-MAX_RATE=800.0             # project command rate, encoder counts per second
+MAX_RATE=800.0             # optional host interpolation rate, encoder counts/s
 MAX_STEP=80                # maximum per-axis change per submitted waypoint
 TICK_SECONDS=.10
 POSITION_TOLERANCE=40
@@ -33,6 +33,11 @@ def duration_value(value):
     return float(value)
 
 
+def execution_mode_value(value):
+    if value not in ('direct','smooth'):raise ValueError('发送方式必须为direct或smooth')
+    return value
+
+
 def nominal(values):
     if len(values)!=10 or any(type(v) is not int for v in values):raise ValueError('没有有效的十轴位置反馈')
     # This is a new command target; original telemetry is never modified.
@@ -46,6 +51,7 @@ class MotionPlan:
     duration:float
     began:float
     name:str
+    execution_mode:str='smooth'
     id:str=field(default_factory=lambda:secrets.token_hex(6))
     last_sent:list=field(default_factory=list)
     last_tick:float=-math.inf
@@ -56,10 +62,16 @@ class MotionPlan:
 
     def __post_init__(self):
         self.start=target_vector(self.start);self.target=target_vector(self.target)
-        self.duration=max(duration_value(self.duration),max(abs(a-b) for a,b in zip(self.start,self.target))*1.5/MAX_RATE)
+        execution_mode_value(self.execution_mode)
+        self.duration=0.0 if self.execution_mode=='direct' else max(duration_value(self.duration),max(abs(a-b) for a,b in zip(self.start,self.target))*1.5/MAX_RATE)
         self.last_sent=list(self.start)
 
+    @property
+    def arrival_timeout(self):
+        return 10.0 if self.execution_mode=='direct' else 3.0
+
     def waypoint(self,now):
+        if self.execution_mode=='direct':return list(self.target)
         t=min(1,max(0,(now-self.began)/self.duration));smooth=t*t*(3-2*t)
         desired=[round(a+(b-a)*smooth) for a,b in zip(self.start,self.target)]
         return [last+max(-MAX_STEP,min(MAX_STEP,want-last)) for want,last in zip(desired,self.last_sent)]
@@ -93,7 +105,7 @@ class MotionController:
             'capabilities':list(getattr(device,'control_capabilities',())),'armed':False,
             'session_id':secrets.token_hex(16),'mode':mode,'hand':side,'running':False,'status':'locked' if device else 'disconnected',
             'power_state':None,'motion_id':None,'name':None,'target':None,'last_sent':None,'write_attempted':False,
-            'progress':0.0,'effective_duration':None,'error':None,'log_path':None,
+            'progress':0.0,'effective_duration':None,'execution_mode':None,'arrival_timeout':None,'error':None,'log_path':None,
             'message':'控制已锁定；连接、预览及调整滑块不会下发动作' if device else '请先连接设备'}
 
     def bind(self,device,mode,side):
@@ -132,7 +144,8 @@ class MotionController:
         with self._lock:
             presets=[copy.deepcopy(p) for p in self._builtin+self._custom() if p['hand']==side]
         return {'presets':presets,'hand':side,'position_range':[0,4096],
-                'command_limits':{'max_step':MAX_STEP,'max_rate':MAX_RATE,'tick_seconds':TICK_SECONDS},'control':self.snapshot()}
+                'execution_modes':['direct','smooth'],'default_execution_mode':'direct',
+                'command_limits':{'applies_to':'smooth','max_step':MAX_STEP,'max_rate':MAX_RATE,'tick_seconds':TICK_SECONDS},'control':self.snapshot()}
 
     def _resolve(self,body):
         if ('preset_id' in body)==('positions' in body):raise ValueError('请指定一个预设动作或十轴目标，不能同时指定')
@@ -171,7 +184,9 @@ class MotionController:
         if action=='preview':return self.preview(body)
         if action=='save':return self.save(body)
         if action not in ('arm','lock','enable','disable','move','stop'):raise ValueError('不支持的控制请求')
-        if action=='move':self._resolve(body);duration_value(body.get('duration',4))
+        if action=='move':
+            self._resolve(body)
+            if execution_mode_value(body.get('execution_mode','direct'))=='smooth':duration_value(body.get('duration',4))
         with self._lock:
             if body.get('session_id')!=self._state['session_id']:raise RuntimeError('设备会话已变化，请刷新后重试')
             if self._device is None or not self._state['available']:raise RuntimeError('当前连接不支持位置控制')
@@ -281,11 +296,14 @@ class MotionController:
             if self._state['power_state']==0:raise RuntimeError('电机尚未使能，请先使能')
             if self._cancel.is_set():raise RuntimeError('动作已被停止请求取消')
             target,name=self._resolve(body)
-            plan=MotionPlan(nominal(current),target,duration_value(body.get('duration',4)),time.monotonic(),name)
+            mode=execution_mode_value(body.get('execution_mode','direct'))
+            plan=MotionPlan(nominal(current),target,body.get('duration',4),time.monotonic(),name,execution_mode=mode)
             self._plan=plan
             self._update(running=True,status='moving',motion_id=plan.id,name=name,target=target,last_sent=list(plan.start),progress=0,
-                effective_duration=round(plan.duration,2),error=None,message='正在渐变执行位置目标')
-            self._record('motion_started',motion_id=plan.id,name=name,target=target,effective_duration=plan.duration)
+                effective_duration=round(plan.duration,2),execution_mode=mode,arrival_timeout=plan.arrival_timeout,
+                error=None,message='正在直接发送位置目标' if mode=='direct' else '正在渐变执行位置目标')
+            self._record('motion_started',motion_id=plan.id,name=name,target=target,effective_duration=plan.duration,
+                execution_mode=mode,arrival_timeout=plan.arrival_timeout)
         return self.snapshot()
 
     def tick(self,device,feedback=None):
@@ -325,16 +343,22 @@ class MotionController:
             if plan.reached_samples>=2:
                 self._update(running=False,status='completed',progress=1.0,message='动作完成，位置反馈已到目标范围');self._plan=None
                 self._record('motion_completed',motion_id=plan.id,max_position_error=distance)
-            elif now-plan.settle_at>3:
+            elif now-plan.settle_at>plan.arrival_timeout:
                 self._hold(device);self._update(running=False,status='not_reached',message='未在等待时间内到位，已发送保持当前位置',error='目标未到位，可能接触阻挡或需要检查状态');self._plan=None
                 self._record('motion_not_reached',motion_id=plan.id,max_position_error=distance)
+            return
+        if plan.execution_mode=='direct':
+            # Send the full target once. Later ticks read feedback, never replay it.
+            self._write(device,plan.target);plan.last_sent=list(plan.target)
+            plan.phase='settling';plan.settle_at=time.monotonic()
+            self._update(last_sent=list(plan.target),status='settling',message='目标已直接下发，等待实际位置到位')
             return
         target=plan.waypoint(now)
         if target!=plan.last_sent:
             self._write(device,target);plan.last_sent=target;self._update(last_sent=list(target))
         self._update(progress=min(.99,max(0,(now-plan.began)/plan.duration)))
         if now-plan.began>=plan.duration and plan.last_sent==plan.target:
-            plan.phase='settling';plan.settle_at=now;self._update(status='settling',message='目标已下发，等待实际位置到位')
+            plan.phase='settling';plan.settle_at=time.monotonic();self._update(status='settling',message='目标已下发，等待实际位置到位')
 
     def check_diagnostics(self,diagnostics,errors=()):
         if not self._state.get('running'):return

@@ -23,7 +23,7 @@ export class MotionPanel{
     $('motion-stop').addEventListener('click',()=>this.send('stop'));
     $('motion-execute').addEventListener('click',()=>this.send('move'));
     $('motion-preview').addEventListener('click',()=>this.preview().catch(e=>this.fail(e)));
-    $('motion-measured').addEventListener('click',()=>{this.clearPreview();$('motion-preview-note').textContent='三维已恢复实测姿态，当前目标保留。';});
+    $('motion-measured').addEventListener('click',()=>{this.clearPreview();$('motion-preview-note').textContent='三维已恢复反馈姿态，当前目标保留。';});
     $('motion-capture').addEventListener('click',()=>{
       if(!Array.isArray(this.state.positions))return;
       const current=this.state.positions;this.setTarget(current.map(v=>Math.max(0,Math.min(4096,v))),null,'当前姿态');
@@ -31,6 +31,7 @@ export class MotionPanel{
     });
     $('motion-save').addEventListener('click',()=>this.save());
     $('motion-duration').addEventListener('input',()=>this.render(this.state));
+    $('motion-mode').addEventListener('change',()=>this.render(this.state));
   }
   async catalog(){
     const data=await this.api('/api/control');this.presets=data.presets;$('motion-presets').replaceChildren();
@@ -64,7 +65,8 @@ export class MotionPanel{
     const body={action,session_id:this.state.control?.session_id};
     if(action==='move'){
       if(!valid(this.target)){this.pending--;this.fail(new Error('请先选择有效目标'));return;}
-      Object.assign(body,this.preset?{preset_id:this.preset}:{positions:[...this.target]},{duration:Number($('motion-duration').value)});
+      Object.assign(body,this.preset?{preset_id:this.preset}:{positions:[...this.target]},{execution_mode:$('motion-mode').value});
+      if(body.execution_mode==='smooth')body.duration=Number($('motion-duration').value);
       this.clearPreview();$('motion-preview-note').textContent='三维显示实际反馈；动作进度以设备回读为准。';
     }
     try{await this.api('/api/control',body);await this.refresh();}catch(error){this.fail(error);}finally{this.pending--;this.render(this.state);}
@@ -91,13 +93,15 @@ export class MotionPanel{
     $('motion-power').textContent=power?c.power_state===1?'电机已使能':c.power_state===0?'电机未使能':'电机状态待查询':'USB SDK不提供使能接口，需预先使能';
     $('motion-target').textContent=this.name;
     $('motion-target-values').textContent=valid(this.target)?this.target.join(' · '):'点击一个手势，只预览，不下发。';
-    const duration=Number($('motion-duration').value),durationOK=Number.isFinite(duration)&&duration>=.5&&duration<=30;
+    const smooth=$('motion-mode').value==='smooth',duration=Number($('motion-duration').value),durationOK=!smooth||(Number.isFinite(duration)&&duration>=.5&&duration<=30);
+    $('motion-duration-field').hidden=!smooth;$('motion-mode').disabled=!!c.running||pending;$('motion-duration').disabled=!!c.running||pending;
+    $('motion-execute').textContent=smooth?'执行渐变':'直接发送';
     $('motion-execute').disabled=!fresh||!c.armed||c.power_state===0||c.running||pending||!valid(this.target)||!durationOK;
     $('motion-preview').disabled=!valid(this.target)||c.running;$('motion-save').disabled=!valid(this.target)||c.running;$('motion-capture').disabled=!fresh||c.running;
     document.querySelectorAll('.preset-card').forEach(b=>b.disabled=!!c.running);document.querySelectorAll('#axis-controls input').forEach(input=>input.disabled=!!c.running||!this.target);
-    $('motion-progress').value=c.progress||0;$('motion-progress').hidden=!c.motion_id||(!c.running&&c.status!=='completed');
+    $('motion-progress').value=c.progress||0;$('motion-progress').hidden=!c.motion_id||(c.running&&c.execution_mode==='direct')||(!c.running&&c.status!=='completed');
     $('motion-message').textContent=this.error||c.error||c.message||'请先连接设备';$('motion-message').classList.toggle('bad',!!this.error||!!c.error);
-    $('motion-detail').textContent=c.motion_id?`${c.running?'执行中':c.status==='completed'?'已完成':'上次动作'}：${c.name} · ${Math.round((c.progress||0)*100)}% · 渐变至少 ${c.effective_duration}s`:'位置目标0–4096 · 单次步长≤80 · 最快10次/秒 · 不代表力或力矩';
+    $('motion-detail').textContent=c.motion_id?`${c.running?'执行中':c.status==='completed'?'已完成':'上次动作'}：${c.name} · ${c.execution_mode==='direct'?`一次发送完整目标${c.running?' · 等待到位反馈':''}`:`${Math.round((c.progress||0)*100)}% · 渐变至少 ${c.effective_duration}s`}`:smooth?'位置目标0–4096 · 电脑插值，每步≤80 · 不代表力或力矩':'位置目标0–4096 · 一次发送十轴目标 · 到位速度由设备决定';
     if(c.running)$('motion-preview-note').textContent='动作正在执行，三维显示实际反馈。';
   }
 }

@@ -123,7 +123,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.writes(),[])
 
     def test_all_writes_run_on_owner_and_stop_preempts_waypoints(self):
-        self.ready();result=self.call('move',positions=[0]*10,duration=.5)
+        self.ready();result=self.call('move',positions=[0]*10,execution_mode='smooth',duration=.5)
         self.assertTrue(result['running'])
         self.controller._plan.began-=3;self.controller._plan.last_tick=-math.inf
         self.controller.tick(self.hand)
@@ -142,7 +142,7 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse(self.controller.snapshot()['running']);self.assertEqual(len(self.writes()),1)
 
     def test_a_missing_ack_locks_control_and_is_not_retried(self):
-        self.ready();self.call('move',positions=[0]*10,duration=1)
+        self.ready();self.call('move',positions=[0]*10,execution_mode='smooth',duration=1)
         self.hand.fail_write=True;self.controller._plan.began-=3;self.controller._plan.last_tick=-math.inf
         self.controller.tick(self.hand);state=self.controller.snapshot()
         self.assertFalse(state['armed']);self.assertFalse(state['running']);self.assertIn('ACK',state['error'])
@@ -154,12 +154,12 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.controller.snapshot()['status'],'stopped')
 
     def test_fault_feedback_prevents_next_waypoint(self):
-        self.ready();self.call('move',positions=[0]*10,duration=1);self.hand.fault=True
+        self.ready();self.call('move',positions=[0]*10,execution_mode='smooth',duration=1);self.hand.fault=True
         self.controller._plan.began-=3;self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand)
         self.assertFalse(self.controller.snapshot()['armed']);self.assertIn('故障',self.controller.snapshot()['error'])
 
     def test_verified_device_error_still_stops_even_when_ack_tail_is_zero(self):
-        self.ready();self.call('move',positions=[0]*10,duration=1)
+        self.ready();self.call('move',positions=[0]*10,execution_mode='smooth',duration=1)
         self.hand.set_positions=Mock(return_value={'positions':[100]*10,'faults':None,'ack_status_raw':[0]*10,'hand_error_code':21})
         self.controller._plan.began-=3;self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand)
         self.assertFalse(self.controller.snapshot()['armed']);self.assertIn('0x0015',self.controller.snapshot()['error'])
@@ -190,13 +190,72 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.writes(),[('power_write',threading.get_ident(),False)])
 
     def test_completed_requires_feedback_and_not_just_an_elapsed_timer(self):
-        self.ready();self.call('move',positions=self.hand.positions(),duration=.5)
+        self.ready();self.call('move',positions=self.hand.positions(),execution_mode='smooth',duration=.5)
         self.controller._plan.began-=1;self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand)
         self.assertEqual(self.controller.snapshot()['status'],'settling')
         for _ in range(2):
             self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand,self.hand.positions())
         self.assertEqual(self.controller.snapshot()['status'],'completed')
         self.assertEqual(self.controller.snapshot()['progress'],1)
+
+    def test_default_direct_move_sends_full_target_once_and_waits_for_real_feedback(self):
+        self.ready();current=self.hand.positions();target=[0,4096]*5
+        self.hand.set_positions=Mock(return_value={'positions':current,'faults':[0]*10})
+        result=self.call('move',positions=target,duration=0)  # no interpolation duration in direct mode
+        self.assertEqual(result['execution_mode'],'direct');self.assertEqual(result['effective_duration'],0)
+        self.assertEqual(self.controller.snapshot()['status'],'settling')
+        for _ in range(4):
+            self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand)
+        self.hand.set_positions.assert_called_once_with(target)
+        self.assertTrue(self.controller.snapshot()['running'])  # ACK is not arrival
+        self.hand._positions=list(target)
+        self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand)
+        self.assertTrue(self.controller.snapshot()['running'])
+        self.controller._plan.last_tick=-math.inf;self.controller.tick(self.hand)
+        self.assertEqual(self.controller.snapshot()['status'],'completed')
+        self.hand.set_positions.assert_called_once_with(target)
+
+    def test_direct_missing_ack_locks_control_without_resending(self):
+        self.ready();self.hand.fail_write=True
+        self.call('move',positions=[0]*10)
+        state=self.controller.snapshot()
+        self.assertFalse(state['armed']);self.assertFalse(state['running']);self.assertIn('ACK',state['error'])
+        for _ in range(4):self.controller.tick(self.hand)
+        self.assertEqual(len(self.writes()),1);self.assertEqual(self.writes()[0][2],[0]*10)
+
+    def test_direct_verified_fault_still_locks_after_one_target(self):
+        self.ready()
+        self.hand.set_positions=Mock(return_value={'positions':[0]*10,'hand_error_code':21})
+        self.call('move',positions=[0]*10)
+        self.assertFalse(self.controller.snapshot()['armed']);self.assertIn('0x0015',self.controller.snapshot()['error'])
+        for _ in range(4):self.controller.tick(self.hand)
+        self.hand.set_positions.assert_called_once_with([0]*10)
+
+    def test_stop_direct_move_sends_current_hold_without_replaying_target(self):
+        self.ready();current=self.hand.positions();target=[0]*10
+        self.hand.set_positions=Mock(return_value={'positions':current,'faults':[0]*10})
+        self.call('move',positions=target);self.call('stop')
+        self.assertEqual([c.args[0] for c in self.hand.set_positions.call_args_list],[target,current])
+        self.assertEqual(self.controller.snapshot()['status'],'stopped')
+        for _ in range(4):self.controller.tick(self.hand)
+        self.assertEqual(self.hand.set_positions.call_count,2)
+
+    def test_direct_arrival_timeout_holds_current_position_without_retrying_target(self):
+        self.ready();current=self.hand.positions();target=[0]*10
+        self.hand.set_positions=Mock(return_value={'positions':current,'faults':[0]*10})
+        self.call('move',positions=target)
+        plan=self.controller._plan;plan.settle_at-=4;plan.last_tick=-math.inf;self.controller.tick(self.hand)
+        self.assertTrue(self.controller.snapshot()['running'])  # allow device movement after a single send
+        plan.settle_at-=7;plan.last_tick=-math.inf;self.controller.tick(self.hand)
+        self.assertEqual(self.controller.snapshot()['status'],'not_reached')
+        self.assertEqual([c.args[0] for c in self.hand.set_positions.call_args_list],[target,current])
+        for _ in range(4):self.controller.tick(self.hand)
+        self.assertEqual(self.hand.set_positions.call_count,2)
+
+    def test_invalid_mode_or_smooth_duration_is_rejected_without_hardware_access(self):
+        for body in ({'execution_mode':'unknown'},{'execution_mode':False},{'execution_mode':'smooth','duration':0}):
+            with self.subTest(body=body),self.assertRaises(ValueError):self.call('move',positions=[0]*10,**body)
+        self.assertEqual(self.hand.calls,[])
 
     def test_timed_out_queued_request_is_not_executed_later(self):
         with self.assertRaises(TimeoutError):self.controller.request('arm',{'session_id':self.session},timeout=.01)
