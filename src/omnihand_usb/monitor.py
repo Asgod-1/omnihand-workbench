@@ -129,7 +129,7 @@ class Monitor:
     def disconnect(self):
         with self._lifecycle:
             control = self.control.snapshot()
-            if control['running'] and self._thread and self._thread.is_alive():
+            if (control['running'] or control.get('jog_active')) and self._thread and self._thread.is_alive():
                 # Ask the existing owner to cancel and hold before closing its transport.
                 self.control.request('lock',{'session_id':control['session_id']})
             self._stop.set()

@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.request
@@ -116,6 +117,20 @@ class HttpContractTests(unittest.TestCase):
             self.assertEqual(client.wait(result['motion_id'],timeout=4)['status'],'completed')
             with self.assertRaises(ValueError):client.move(positions=target,mode='smooth',duration=0)
             with self.assertRaises(ValueError):client.move(positions=target,mode='unknown')
+        finally:client.lock()
+
+    def test_python_live_joint_and_mixed_modes_share_the_existing_demo_connection(self):
+        self.monitor.connect(demo=True);client=ControlClient(self.server.server_port)
+        client.arm();client.enable()
+        try:
+            before=client.state()['positions'];client.joint(5,1234)
+            expected=list(before);expected[4]=1234
+            deadline=time.monotonic()+2
+            while client.state()['positions']!=expected and time.monotonic()<deadline:time.sleep(.01)
+            self.assertEqual(client.state()['positions'],expected)
+            result=client.move(positions=expected,control_mode='pvt',currents_ma=[100]*10,velocities=[500]*10)
+            self.assertEqual(client.wait(result['motion_id'],timeout=4)['status'],'completed')
+            self.assertEqual(client.state()['control']['control_mode'],'pvt')
         finally:client.lock()
 
 

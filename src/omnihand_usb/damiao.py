@@ -19,7 +19,7 @@ from .damiao_runtime import checked_runtime, load_linux_library, check_abi
 
 class _NativeDamiaoHand:
     mode = "canfd"
-    control_capabilities = ('position','power','hold')
+    control_capabilities = ('position','power','hold','joint','pt','pvt','mixed_joint')
 
     def __init__(self, root, *, channel=1, node_id=9, hand_type="right", timeout=.6):
         if type(channel) is not int or channel not in (1, 2):
@@ -157,6 +157,33 @@ class _NativeDamiaoHand:
     def get_power_state(self):
         from .motion_protocol import power_state
         return power_state(self._query(0x02))
+
+    def set_joint_position(self,index,position):
+        from .motion_protocol import joint_payload,joint_reply
+        reply=self._exchange(joint_payload(index,position));joint_reply(reply,index)
+        code=protocol.error_code(self._query(0x0D))
+        return {'positions':self.positions(),'hand_error_code':code,'faults':None,
+                'fault_check':'private_0x0d','response_hex':reply.hex()}
+
+    def set_mixed(self,positions,profile,index=None):
+        from .control_profile import mixed_can_frames,joint_target
+        if index is not None:joint_target(index,positions[index-1] if type(index) is int and 1<=index<=10 else 0)
+        if self._owner_thread is not None and threading.get_ident()!=self._owner_thread:
+            raise RuntimeError('混合控制必须由设备通信线程执行')
+        settings_path=self.root/'config.local.json'
+        settings=__import__('json').loads(settings_path.read_text(encoding='utf-8-sig')) if settings_path.is_file() else {}
+        public_id=settings.get('raw_public_hand_id')
+        if type(public_id) is not int or not 1<=public_id<=254:raise ValueError('混合控制需要配置明确的公有raw_public_hand_id（1–254）')
+        frames=mixed_can_frames(positions,profile,None if index is None else [index-1])
+        can_id=(0x14<<16)|(public_id<<8)|0x81
+        for payload in frames:
+            if not self._device.send_can(self.channel,can_id,len(payload),payload,True,True,False,True):
+                raise RuntimeError('混合目标未提交成功；不自动重发')
+        # Public mixed writes are asynchronous. Do not label readback as a write ACK.
+        code=protocol.error_code(self._query(0x0D));actual=self.positions()
+        return {'positions':actual,'faults':None,'hand_error_code':code,'fault_check':'private_0x0d',
+                'delivery':'transport_submitted_with_readback','submitted_frames':len(frames),
+                'request_hex':[p.hex() for p in frames]}
 
     def set_enabled(self, enabled):
         from .motion_protocol import power_payload,power_reply
@@ -298,6 +325,10 @@ def _worker_main(connection, root, channel, node_id, hand_type, timeout):
                     result = hand.raw_tactile()
                 elif operation == 'set_positions':
                     result = hand.set_positions(request['positions'])
+                elif operation == 'set_joint_position':
+                    result = hand.set_joint_position(request['index'],request['position'])
+                elif operation == 'set_mixed':
+                    result = hand.set_mixed(request['positions'],request['profile'],request.get('index'))
                 elif operation == 'get_power_state':
                     result = hand.get_power_state()
                 elif operation == 'set_enabled':
@@ -327,7 +358,7 @@ class DamiaoHand:
     """IPC facade: fresh official USB driver process for every connection."""
 
     mode = "canfd"
-    control_capabilities = ('position','power','hold')
+    control_capabilities = ('position','power','hold','joint','pt','pvt','mixed_joint')
 
     def __init__(self, root, *, channel=1, node_id=9, hand_type="right", timeout=.6):
         # Validate before creating a process; this constructor opens no hardware.
@@ -401,6 +432,16 @@ class DamiaoHand:
     def set_positions(self, positions):
         from .motion_protocol import target_vector
         return self._rpc('set_positions',positions=target_vector(positions))
+
+    def set_joint_position(self,index,position):
+        from .control_profile import joint_target
+        joint_target(index,position)
+        return self._rpc('set_joint_position',index=index,position=position)
+
+    def set_mixed(self,positions,profile,index=None):
+        from .motion_protocol import target_vector
+        from .control_profile import control_profile
+        return self._rpc('set_mixed',positions=target_vector(positions),profile=control_profile(profile),index=index)
 
     def get_power_state(self):
         return self._rpc('get_power_state')

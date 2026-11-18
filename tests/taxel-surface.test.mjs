@@ -82,6 +82,24 @@ test('a visible index-zero taxel can be picked, including a small screen offset'
   const near=layer.pick(raycaster,{camera,pointer,width:800,height:600});assert.equal(near?.region,'INDEX');assert.equal(near?.index,0);
 });
 
+test('sensor footprints remain separate and contact fill grows without moving its centre',{skip:!available},()=>{
+  for(const g of layer.groups){
+    const rx=g.spec.radiusLong||g.spec.radius,ry=g.spec.radiusCross||g.spec.radius;
+    for(let i=0;i<g.placement.length;i++)for(let j=i+1;j<g.placement.length;j++){
+      const a=g.placement[i].position,b=g.placement[j].position;
+      const distance=Math.hypot((a.getComponent(g.spec.longAxis)-b.getComponent(g.spec.longAxis))/rx,(a.getComponent(g.spec.crossAxis)-b.getComponent(g.spec.crossAxis))/ry);
+      assert.ok(distance>g.footprints[i]+g.footprints[j],g.region+' has distinct sensor outlines');
+    }
+  }
+  const data=measured();for(const r of Object.values(data))r.values.fill(0);
+  assert.equal(layer.update(data,state(),{mode:'raw',maximum:255}).activeCount,0);
+  const finger=layer.groups.find(g=>g.region==='INDEX'),before=new THREE.Matrix4(),after=new THREE.Matrix4();
+  finger.points.getMatrixAt(0,before);data.INDEX.values[0]=255;
+  assert.equal(layer.update(data,state(),{mode:'raw',maximum:255}).activeCount,1);finger.points.getMatrixAt(0,after);
+  assert.ok(new THREE.Vector3().setFromMatrixPosition(before).distanceTo(new THREE.Vector3().setFromMatrixPosition(after))<1e-9);
+  assert.ok(new THREE.Vector3().setFromMatrixScale(after).x>new THREE.Vector3().setFromMatrixScale(before).x*4);
+});
+
 test('disconnection preserves point identity but never marks old values as live',{skip:!available},()=>{
   const data=measured(),result=layer.update(data,{...state(),connected:false},{mode:'raw',maximum:255});
   assert.equal(result.count,268);assert.equal(result.freshCount,0);assert.equal(host.dataset.taxelFresh,'0');

@@ -261,5 +261,37 @@ class ControllerTests(unittest.TestCase):
         with self.assertRaises(TimeoutError):self.controller.request('arm',{'session_id':self.session},timeout=.01)
         self.controller.tick(self.hand);self.assertFalse(self.controller.snapshot()['armed']);self.assertEqual(self.hand.calls,[])
 
+    def test_live_joint_changes_only_requested_axis_and_lock_holds_it(self):
+        self.ready();before=self.hand.positions();self.hand.set_joint_position=Mock(wraps=self.hand.set_joint_position)
+        result=self.call('joint',index=4,position=1234)
+        self.hand.set_joint_position.assert_called_once_with(4,1234)
+        expected=list(before);expected[3]=1234;self.assertEqual(self.hand.positions(),expected)
+        self.assertFalse(result['running']);self.assertTrue(result['jog_active']);self.assertIsNone(self.controller._plan)
+        self.call('lock');self.assertEqual(self.writes()[-1][2],expected)
+        self.assertFalse(self.controller.snapshot()['jog_active'])
+
+    def test_stop_cancels_unsent_live_joint_requests(self):
+        self.ready();self.hand.set_joint_position=Mock(wraps=self.hand.set_joint_position)
+        thread,pending=self.queued('joint',index=5,position=1234)
+        stop_thread,stop=self.queued('stop');self.controller.tick(self.hand);thread.join(2);stop_thread.join(2)
+        self.assertIn('error',pending);self.assertNotIn('error',stop);self.hand.set_joint_position.assert_not_called()
+
+    def test_live_joint_fault_locks_and_is_not_retried(self):
+        self.ready();self.hand.set_joint_position=Mock(return_value={'positions':[100]*10,'hand_error_code':21})
+        with self.assertRaisesRegex(RuntimeError,'0x0015'):self.call('joint',index=2,position=1234)
+        for _ in range(4):self.controller.tick(self.hand)
+        self.assertFalse(self.controller.snapshot()['armed']);self.hand.set_joint_position.assert_called_once()
+
+    def test_live_mixed_parameters_reach_the_backend_without_changing_other_axes(self):
+        self.ready();before=self.hand.positions()
+        self.call('joint',index=3,position=1234,control_mode='pt',currents_ma=[100]*10)
+        expected=list(before);expected[2]=1234;self.assertEqual(self.hand.positions(),expected)
+        self.assertEqual(self.hand._profile,{'control_mode':'pt','currents_ma':[100]*10})
+        self.assertEqual(self.controller.snapshot()['control_mode'],'pt')
+
+    def test_mixed_control_rejects_host_interpolation_without_accessing_hardware(self):
+        with self.assertRaises(ValueError):self.call('move',positions=[0]*10,execution_mode='smooth',control_mode='pt',currents_ma=[100]*10)
+        self.assertEqual(self.hand.calls,[])
+
 
 if __name__=='__main__':unittest.main()

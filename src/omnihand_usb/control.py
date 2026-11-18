@@ -16,6 +16,7 @@ import threading
 import time
 
 from .motion_protocol import target_vector
+from .control_profile import control_profile,joint_target
 
 MAX_RATE=800.0             # optional host interpolation rate, encoder counts/s
 MAX_STEP=80                # maximum per-axis change per submitted waypoint
@@ -52,6 +53,7 @@ class MotionPlan:
     began:float
     name:str
     execution_mode:str='smooth'
+    profile:dict=field(default_factory=lambda:{'control_mode':'position'})
     id:str=field(default_factory=lambda:secrets.token_hex(6))
     last_sent:list=field(default_factory=list)
     last_tick:float=-math.inf
@@ -103,7 +105,7 @@ class MotionController:
         self._cancel.clear();self._log_path=None
         self._state={'available':device is not None and 'position' in getattr(device,'control_capabilities',()),
             'capabilities':list(getattr(device,'control_capabilities',())),'armed':False,
-            'session_id':secrets.token_hex(16),'mode':mode,'hand':side,'running':False,'status':'locked' if device else 'disconnected',
+            'session_id':secrets.token_hex(16),'mode':mode,'hand':side,'running':False,'jog_active':False,'control_mode':'position','status':'locked' if device else 'disconnected',
             'power_state':None,'motion_id':None,'name':None,'target':None,'last_sent':None,'write_attempted':False,
             'progress':0.0,'effective_duration':None,'execution_mode':None,'arrival_timeout':None,'error':None,'log_path':None,
             'message':'控制已锁定；连接、预览及调整滑块不会下发动作' if device else '请先连接设备'}
@@ -145,6 +147,7 @@ class MotionController:
             presets=[copy.deepcopy(p) for p in self._builtin+self._custom() if p['hand']==side]
         return {'presets':presets,'hand':side,'position_range':[0,4096],
                 'execution_modes':['direct','smooth'],'default_execution_mode':'direct',
+                'control_modes':[m for m in ('position','pt','pvt') if m=='position' or m in self.snapshot()['capabilities']],
                 'command_limits':{'applies_to':'smooth','max_step':MAX_STEP,'max_rate':MAX_RATE,'tick_seconds':TICK_SECONDS},'control':self.snapshot()}
 
     def _resolve(self,body):
@@ -183,10 +186,14 @@ class MotionController:
     def request(self,action,body,timeout=8):
         if action=='preview':return self.preview(body)
         if action=='save':return self.save(body)
-        if action not in ('arm','lock','enable','disable','move','stop'):raise ValueError('不支持的控制请求')
+        if action not in ('arm','lock','enable','disable','move','stop','joint'):raise ValueError('不支持的控制请求')
+        if action in ('move','joint'):profile=control_profile(body)
+        if action=='joint':joint_target(body.get('index'),body.get('position'))
         if action=='move':
             self._resolve(body)
-            if execution_mode_value(body.get('execution_mode','direct'))=='smooth':duration_value(body.get('duration',4))
+            if execution_mode_value(body.get('execution_mode','direct'))=='smooth':
+                duration_value(body.get('duration',4))
+                if profile['control_mode']!='position':raise ValueError('混合控制使用直接发送，电脑渐变只用于位置控制')
         with self._lock:
             if body.get('session_id')!=self._state['session_id']:raise RuntimeError('设备会话已变化，请刷新后重试')
             if self._device is None or not self._state['available']:raise RuntimeError('当前连接不支持位置控制')
@@ -198,7 +205,7 @@ class MotionController:
         if not ticket.done.wait(timeout):
             with self._lock:
                 ticket.cancelled=True;started=ticket.started
-                if started and action in ('arm','enable','move'):
+                if started and action in ('arm','enable','move','joint'):
                     # A timed-out in-flight request must not start/continue a later plan.
                     self._generation+=1;self._cancel.set();self._sequence+=1
                     cancellation=Ticket('lock',{'session_id':self._state['session_id']},generation=self._generation)
@@ -228,13 +235,17 @@ class MotionController:
         self._update(power_state=power);self._feedback=list(positions);self._feedback_at=time.monotonic()
         return positions
 
-    def _write(self,device,positions):
+    def _write(self,device,positions,profile=None,index=None):
+        positions=target_vector(positions);profile=profile or {'control_mode':'position'}
         self._update(write_attempted=True)
-        result=device.set_positions(target_vector(positions))
+        if profile['control_mode']!='position':result=device.set_mixed(positions,profile,index)
+        elif index is not None:result=device.set_joint_position(index,positions[index-1])
+        else:result=device.set_positions(positions)
         if not isinstance(result,dict) or len(result.get('positions',[]))!=10:raise RuntimeError('设备未返回完整的位置指令应答')
-        self._record('position_acknowledged',target=list(positions),positions=result['positions'],faults=result.get('faults'),
+        event='mixed_target_submitted' if profile['control_mode']!='position' else 'joint_position_acknowledged' if index is not None else 'position_acknowledged'
+        self._record(event,target=list(positions),joint_index=index,profile=profile,positions=result['positions'],faults=result.get('faults'),
             ack_status_raw=result.get('ack_status_raw'),hand_error_code=result.get('hand_error_code'),
-            fault_check=result.get('fault_check'),response_hex=result.get('response_hex'))
+            fault_check=result.get('fault_check'),response_hex=result.get('response_hex'),delivery=result.get('delivery'),request_hex=result.get('request_hex'))
         if result.get('hand_error_code',0):raise RuntimeError(f"位置指令后设备报告故障 0x{result['hand_error_code']:04X}，动作已停止下发")
         if any(result.get('faults') or []):raise RuntimeError('位置应答中存在轴故障，动作已停止下发')
         self._feedback=list(result['positions']);self._feedback_at=time.monotonic()
@@ -251,13 +262,13 @@ class MotionController:
     def _execute(self,ticket,device):
         action,body=ticket.action,ticket.body
         if body.get('session_id')!=self._state['session_id']:raise RuntimeError('旧设备会话的请求已取消')
-        if action in ('arm','enable','move') and (ticket.generation!=self._generation or self._cancel.is_set()):
+        if action in ('arm','enable','move','joint') and (ticket.generation!=self._generation or self._cancel.is_set()):
             raise RuntimeError('该请求已被停止或锁定操作取消')
         if action=='arm':
             if self._state['running']:raise RuntimeError('动作正在执行')
             self._healthy(device)
             if ticket.generation!=self._generation:raise RuntimeError('开启控制已被取消')
-            self._update(armed=True,status='ready',error=None,message='控制已开启；执行按钮才会下发动作')
+            self._update(armed=True,status='ready',error=None,message='控制已开启；拖动滑块直接控制单轴，预设需点击发送')
             self._record('control_armed',hardware_write=False)
         elif action=='enable':
             self._armed()
@@ -274,7 +285,7 @@ class MotionController:
             self._update(power_state=result['power_state'],status='ready',error=None,message='电机已使能，状态回读确认')
             self._record('power_enabled',confirmed=True)
         elif action in ('stop','lock','disable'):
-            was_running=self._state['running'];self._plan=None;self._update(running=False)
+            was_running=self._state['running'] or self._state['jog_active'];self._plan=None;self._update(running=False,jog_active=False)
             try:
                 if action=='disable':
                     if 'power' not in self._state['capabilities']:raise RuntimeError('当前SDK接口未提供电机失能')
@@ -289,21 +300,33 @@ class MotionController:
                     self._record(action,hold_acknowledged=held)
                 self._update(error=None)
             finally:self._cancel.clear()
-        elif action=='move':
+        elif action in ('move','joint'):
             self._armed()
             if self._state['running']:raise RuntimeError('已有动作在执行，请先停止')
+            profile=control_profile(body)
+            if profile['control_mode']!='position' and profile['control_mode'] not in self._state['capabilities']:
+                raise RuntimeError('当前连接不支持所选混合控制')
+            if action=='joint' and profile['control_mode']!='position' and 'mixed_joint' not in self._state['capabilities']:
+                raise RuntimeError('当前连接只支持整手混合控制，单轴请用位置模式或CAN FD')
             current=self._healthy(device)
             if self._state['power_state']==0:raise RuntimeError('电机尚未使能，请先使能')
             if self._cancel.is_set():raise RuntimeError('动作已被停止请求取消')
+            if action=='joint':
+                index,position=joint_target(body.get('index'),body.get('position'))
+                target=nominal(current);target[index-1]=position
+                self._write(device,target,profile,index)
+                self._update(status='joint_sent',jog_active=True,motion_id=None,name=f'关节{index}',target=target,last_sent=target,
+                    progress=0,execution_mode='direct',control_mode=profile['control_mode'],error=None,message=f'关节{index}目标已发送，持续显示实际反馈')
+                return self.snapshot()
             target,name=self._resolve(body)
             mode=execution_mode_value(body.get('execution_mode','direct'))
-            plan=MotionPlan(nominal(current),target,body.get('duration',4),time.monotonic(),name,execution_mode=mode)
+            plan=MotionPlan(nominal(current),target,body.get('duration',4),time.monotonic(),name,execution_mode=mode,profile=profile)
             self._plan=plan
-            self._update(running=True,status='moving',motion_id=plan.id,name=name,target=target,last_sent=list(plan.start),progress=0,
+            self._update(running=True,jog_active=False,status='moving',motion_id=plan.id,name=name,target=target,last_sent=list(plan.start),progress=0,control_mode=profile['control_mode'],
                 effective_duration=round(plan.duration,2),execution_mode=mode,arrival_timeout=plan.arrival_timeout,
                 error=None,message='正在直接发送位置目标' if mode=='direct' else '正在渐变执行位置目标')
             self._record('motion_started',motion_id=plan.id,name=name,target=target,effective_duration=plan.duration,
-                execution_mode=mode,arrival_timeout=plan.arrival_timeout)
+                execution_mode=mode,profile=profile,arrival_timeout=plan.arrival_timeout)
         return self.snapshot()
 
     def tick(self,device,feedback=None):
@@ -319,8 +342,8 @@ class MotionController:
             try:ticket.result=self._execute(ticket,device)
             except Exception as exc:
                 ticket.error=exc
-                if ticket.action in ('stop','disable','lock','enable'):
-                    self._plan=None;self._update(armed=False,running=False,status='error',error=str(exc),message='控制请求未确认，请检查设备')
+                if ticket.action in ('stop','disable','lock','enable','joint'):
+                    self._plan=None;self._update(armed=False,running=False,jog_active=False,status='error',error=str(exc),message='控制请求未确认，请检查设备')
                 self._record('request_failed',action=ticket.action,error=str(exc))
             finally:ticket.done.set()
         if self._plan is None or self._cancel.is_set():return
@@ -349,7 +372,7 @@ class MotionController:
             return
         if plan.execution_mode=='direct':
             # Send the full target once. Later ticks read feedback, never replay it.
-            self._write(device,plan.target);plan.last_sent=list(plan.target)
+            self._write(device,plan.target,plan.profile);plan.last_sent=list(plan.target)
             plan.phase='settling';plan.settle_at=time.monotonic()
             self._update(last_sent=list(plan.target),status='settling',message='目标已直接下发，等待实际位置到位')
             return
@@ -361,9 +384,9 @@ class MotionController:
             plan.phase='settling';plan.settle_at=time.monotonic();self._update(status='settling',message='目标已下发，等待实际位置到位')
 
     def check_diagnostics(self,diagnostics,errors=()):
-        if not self._state.get('running'):return
+        if not (self._state.get('running') or self._state.get('jog_active')):return
         bad=diagnostics.get('hand_error_code',0) or any(any(v for v in r.values()) for r in diagnostics.get('motor_errors',[]))
         if bad or errors:
             reason='设备诊断出现错误标记' if bad else '运行中诊断未完整返回：'+'；'.join(errors)
-            self._plan=None;self._update(armed=False,running=False,status='error',error=reason+'，已停止后续动作下发',message='设备异常，动作已停止下发')
+            self._plan=None;self._update(armed=False,running=False,jog_active=False,status='error',error=reason+'，已停止后续动作下发',message='设备异常，动作已停止下发')
             self._record('motion_fault',diagnostics=diagnostics,errors=list(errors))

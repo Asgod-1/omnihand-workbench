@@ -23,6 +23,18 @@ def position_payload(values):
     return payload.ljust(length,b'\0')
 
 
+def joint_payload(index,position):
+    from .control_profile import joint_target
+    joint_target(index,position)
+    return b'\x06'+struct.pack('<BH',index,position)
+
+
+def joint_reply(payload,index):
+    body=response_body(payload,0x06,3)
+    if body[0]!=index:raise ValueError('单轴位置应答编号不匹配')
+    return struct.unpack('<H',body[1:3])[0]
+
+
 def power_payload(enabled):
     if type(enabled) is not bool:
         raise ValueError('只允许明确的使能或失能，不允许校准模式')

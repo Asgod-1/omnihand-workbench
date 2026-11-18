@@ -52,7 +52,7 @@ class USBHand:
     """One exclusive SDK USB connection; position writes are explicit methods."""
 
     mode = "usb"
-    control_capabilities = ('position','hold')
+    control_capabilities = ('position','hold','joint','pt','pvt')
 
     def __init__(self, port, hand_type="right", device_id=1):
         if hand_type not in ("left", "right") or not 1 <= device_id <= 254:
@@ -105,6 +105,24 @@ class USBHand:
         actual=integer_vector(self._hand.set_all_joint_positions(target_vector(positions)),expected=10)
         return {'positions':actual,'faults':None}
 
+    def set_joint_position(self,index,position):
+        from .control_profile import joint_target
+        joint_target(index,position);self._hand.set_joint_position(index,position)
+        return {'positions':self.positions(),'faults':None,'delivery':'sdk_set_and_readback'}
+
+    def set_mixed(self,positions,profile,index=None):
+        from .control_profile import control_profile
+        from .motion_protocol import target_vector
+        positions=target_vector(positions);profile=control_profile(profile)
+        if index is not None:raise RuntimeError('USB私有协议只提供整手混合控制；单轴混合控制请用CAN FD')
+        mode=profile['control_mode']
+        if mode=='position':raise ValueError('请使用位置控制接口')
+        args=(positions,profile['currents_ma']) if mode=='pt' else (positions,profile['velocities'],profile['currents_ma'])
+        reply=list(getattr(self._hand,'mix_control_by_'+mode)(*args))
+        if len(reply)!=10 or {int(r.joint_index) for r in reply}!=set(range(1,11)):
+            raise RuntimeError('SDK混合控制未返回完整十轴反馈')
+        return {'positions':self.positions(),'faults':None,'delivery':'sdk_mixed_and_readback'}
+
     def tactile(self, region):
         if region not in REGIONS:
             raise ValueError("Unknown tactile region")
@@ -137,7 +155,7 @@ class DemoHand:
 
     mode = "demo"
     port = "DEMO"
-    control_capabilities = ('position','power','hold')
+    control_capabilities = ('position','power','hold','joint','pt','pvt','mixed_joint')
     ordinary_tactile_enabled = False
 
     def __init__(self, *args, **kwargs):
@@ -157,6 +175,17 @@ class DemoHand:
         self._target=target_vector(positions)
         if self._enabled:self._positions=list(self._target)
         return {'positions':list(self._positions),'faults':[0]*10}
+
+    def set_joint_position(self,index,position):
+        from .control_profile import joint_target
+        joint_target(index,position);self._target[index-1]=position
+        if self._enabled:self._positions[index-1]=position
+        return {'positions':self.positions(),'faults':[0]*10}
+
+    def set_mixed(self,positions,profile,index=None):
+        from .control_profile import control_profile
+        self._profile=control_profile(profile)
+        return self.set_positions(positions) if index is None else self.set_joint_position(index,positions[index-1])
 
     def get_power_state(self):
         return int(self._enabled)

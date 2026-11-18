@@ -10,6 +10,7 @@ import urllib.request
 
 from .motion_protocol import target_vector
 from .control import duration_value,execution_mode_value
+from .control_profile import control_profile,joint_target
 
 
 class ControlClient:
@@ -51,11 +52,18 @@ class ControlClient:
     def disable(self):return self._action('disable')
     def stop(self):return self._action('stop')
     def lock(self):return self._action('lock')
-    def move(self,*,preset=None,positions=None,mode='direct',duration=4):
+    def move(self,*,preset=None,positions=None,mode='direct',duration=4,control_mode='position',currents_ma=None,velocities=None):
         """Send one full target by default; duration applies only to mode='smooth'."""
-        body={'execution_mode':execution_mode_value(mode),**self._target(preset,positions)}
+        profile=control_profile({'control_mode':control_mode,'currents_ma':currents_ma,'velocities':velocities})
+        body={'execution_mode':execution_mode_value(mode),**self._target(preset,positions),**profile}
         if mode=='smooth':body['duration']=duration_value(duration)
         return self._action('move',**body)
+
+    def joint(self,index,position,*,control_mode='position',currents_ma=None,velocities=None):
+        """Control one 1-based motor without writing targets for the other nine."""
+        joint_target(index,position)
+        profile=control_profile({'control_mode':control_mode,'currents_ma':currents_ma,'velocities':velocities})
+        return self._action('joint',index=index,position=position,**profile)
 
     def wait(self,motion_id,timeout=45):
         deadline=time.monotonic()+timeout

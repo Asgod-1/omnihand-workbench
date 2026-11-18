@@ -17,7 +17,7 @@ sudo bash scripts/setup_udev.sh
 bash Start_CANFD_Dashboard.sh
 ```
 
-网页地址：<http://127.0.0.1:8765/>。启动后软件控制保持锁定，CAN FD读取位置和完整原始阵列，普通触觉仅在USB模式保留。点击预设只预览，明确执行才发送动作；操作见[CONTROL.md](CONTROL.md)。
+网页地址：<http://127.0.0.1:8765/>。启动后软件控制保持锁定，CAN FD读取位置和完整原始阵列，普通触觉仅在USB模式保留。预设选择目标后点击发送；开启控制并使能后滑块直接控制单轴，三维持续显示反馈，操作见[CONTROL.md](CONTROL.md)。
 
 安装脚本下载并校验固定版micromamba，在项目`.venv`创建Python 3.13、libusb和C++运行环境，再安装官方SDK 1.1.11、达妙Python包1.0.4/Linux库1.1.0及三维资源。**不更改系统Python、不替换系统C++库、不烧录固件、不连接硬件**。首次下载需要网络；可用`--skip-model`暂时跳过三维资源。
 
@@ -77,6 +77,6 @@ preview = hand.preview(preset='open')    # 计算目标，不向手发送动作
 
 ## 验证范围
 
-76项无实机Python检查通过，JavaScript检查覆盖网页发送方式及触点表面配准；同时覆盖平台选择、库校验、Linux加载分支、ABI结构、安装计划、权限检查和故障复核。官方Linux x64/ARM64库已下载并校验，Windows环境检查通过。
+无实机Python与JavaScript检查覆盖网页单轴/混合发送及触点表面配准，同时覆盖平台选择、库校验、Linux加载分支、ABI结构、安装计划、权限检查和故障复核。官方Linux x64/ARM64库已下载并校验，Windows环境检查通过。
 
 当前电脑没有可运行的Ubuntu环境，**本次没有在Ubuntu上执行Linux库或做真机通讯测试**。GitHub检查已配置Ubuntu22.04。迁移后先运行`doctor`和离线演示，再连接验证位置与268点原始阵列；USB模式另验证130点普通触觉。

@@ -17,6 +17,17 @@ export const SURFACE_REGISTRATION={
 
 function markerScale(object,spec,factor=1){object.scale.set((spec.radiusLong||spec.radius)*factor,(spec.radiusCross||spec.radius)*factor,1);}
 
+export function cellFootprints(placement,spec){
+  const rx=spec.radiusLong||spec.radius,ry=spec.radiusCross||spec.radius;
+  return placement.map((p,i)=>{
+    let distance=Infinity;
+    placement.forEach((q,j)=>{if(i!==j)distance=Math.min(distance,Math.hypot(
+      (p.position.getComponent(spec.longAxis)-q.position.getComponent(spec.longAxis))/rx,
+      (p.position.getComponent(spec.crossAxis)-q.position.getComponent(spec.crossAxis))/ry));});
+    return Math.min(1,distance*.43);
+  });
+}
+
 function targetFor(point,spec){
   const p=new THREE.Vector3();
   p.setComponent(spec.longAxis,THREE.MathUtils.lerp(...spec.long,point.v));
@@ -59,9 +70,9 @@ export function projectTaxelLayout(geometry,layout,spec){
 export class SurfaceTaxels{
   constructor(meshes,host){
     this.meshes=meshes;this.host=host;this.groups=[];this.pickables=[];this.signature='';this.selection=null;this.projected=new Map();
-    this.circle=new THREE.CircleGeometry(1,18);this.ringGeometry=new THREE.RingGeometry(1.10,1.36,24);
+    this.circle=new THREE.CircleGeometry(1,24);this.sensorRing=new THREE.RingGeometry(.86,1,24);this.ringGeometry=new THREE.RingGeometry(1.10,1.36,24);
     this.markerMaterial=new THREE.MeshBasicMaterial({vertexColors:false,side:THREE.FrontSide,toneMapped:false,transparent:true,opacity:.87,depthWrite:false,polygonOffset:true,polygonOffsetFactor:-2});
-    this.borderMaterial=new THREE.MeshBasicMaterial({color:'#274d70',side:THREE.FrontSide,toneMapped:false});
+    this.borderMaterial=new THREE.MeshBasicMaterial({color:'#6a9eb5',side:THREE.FrontSide,toneMapped:false,transparent:true,opacity:.45,depthWrite:false});
     this.highlight=new THREE.Mesh(this.ringGeometry,new THREE.MeshBasicMaterial({color:'#ffc666',side:THREE.DoubleSide,toneMapped:false}));
     this.highlight.visible=false;this.dummy=new THREE.Object3D();this.color=new THREE.Color();
   }
@@ -83,34 +94,42 @@ export class SurfaceTaxels{
         let placement=this.projected.get(cacheKey);
         if(!placement){placement=projectTaxelLayout(mesh.geometry,layout,spec);this.projected.set(cacheKey,placement);}
         const points=new THREE.InstancedMesh(this.circle,this.markerMaterial,values.length);
-        const border=new THREE.InstancedMesh(this.circle,this.borderMaterial,values.length);
-        points.instanceMatrix.setUsage(THREE.StaticDrawUsage);points.frustumCulled=false;border.frustumCulled=false;
+        const border=new THREE.InstancedMesh(this.sensorRing,this.borderMaterial,values.length),footprints=cellFootprints(placement,spec);
+        points.instanceMatrix.setUsage(THREE.DynamicDrawUsage);points.frustumCulled=false;border.frustumCulled=false;
+        border.renderOrder=1;points.renderOrder=2;
         points.userData={taxels:true,region,source:mode,placement};points.name=region+'-taxels';border.name=region+'-taxel-borders';
         placement.forEach((p,i)=>{
           this.dummy.position.copy(p.position).addScaledVector(p.normal,.00022);
           this.dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),p.normal);
-          markerScale(this.dummy,spec);this.dummy.updateMatrix();points.setMatrixAt(i,this.dummy.matrix);
+          markerScale(this.dummy,spec,footprints[i]);this.dummy.updateMatrix();points.setMatrixAt(i,this.dummy.matrix);
           this.dummy.position.copy(p.position).addScaledVector(p.normal,.00016);
-          markerScale(this.dummy,spec,1.10);this.dummy.updateMatrix();border.setMatrixAt(i,this.dummy.matrix);
+          markerScale(this.dummy,spec,footprints[i]);this.dummy.updateMatrix();border.setMatrixAt(i,this.dummy.matrix);
         });
-        mesh.add(border,points);this.groups.push({region,mesh,points,border,placement,spec});this.pickables.push(points);
+        mesh.add(border,points);this.groups.push({region,mesh,points,border,placement,spec,footprints});this.pickables.push(points);
       }
     }
-    let count=0,rayHits=0,fallbacks=0,freshCount=0;
+    let count=0,rayHits=0,fallbacks=0,freshCount=0,activeCount=0;
     for(const group of this.groups){
       const entry=data[group.region],values=entry.values;
       const fresh=state.connected&&Date.now()-Date.parse(entry.sampled_at||state.raw_tactile?.sampled_at)<3000;
       group.points.visible=visible;group.border.visible=visible;
       for(let i=0;i<values.length;i++){
-        this.color.set(fresh?tactileColor(values[i],maximum):'#728295');group.points.setColorAt(i,this.color);
+        const strength=Math.min(1,Math.max(0,values[i]/Math.max(1,maximum))),p=group.placement[i];
+        this.color.set(fresh?(values[i]>0?tactileColor(values[i],maximum):'#355a70'):'#728295');group.points.setColorAt(i,this.color);
+        this.dummy.position.copy(p.position).addScaledVector(p.normal,.00022);
+        this.dummy.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),p.normal);
+        markerScale(this.dummy,group.spec,group.footprints[i]*(.22+.78*Math.sqrt(strength)));
+        this.dummy.updateMatrix();group.points.setMatrixAt(i,this.dummy.matrix);
+        if(fresh&&values[i]>0)activeCount++;
         count++;if(fresh)freshCount++;
         if(group.placement[i].method==='ray-surface')rayHits++;else fallbacks++;
       }
       if(group.points.instanceColor)group.points.instanceColor.needsUpdate=true;
+      group.points.instanceMatrix.needsUpdate=true;
     }
-    Object.assign(this.host.dataset,{taxelCount:String(count),taxelSource:mode,taxelRayHits:String(rayHits),taxelFallbacks:String(fallbacks),taxelFresh:String(freshCount),taxelMapping:'groove-patch-registration'});
+    Object.assign(this.host.dataset,{taxelCount:String(count),taxelActive:String(activeCount),taxelSource:mode,taxelRayHits:String(rayHits),taxelFallbacks:String(fallbacks),taxelFresh:String(freshCount),taxelMapping:'groove-patch-registration'});
     this.visible=visible;this.refreshSelection();
-    return {count,rayHits,fallbacks,freshCount};
+    return {count,rayHits,fallbacks,freshCount,activeCount};
   }
   select(selection){this.selection=selection;this.host.dataset.selectedTaxel=selection?`${selection.source}:${selection.region}:${selection.index}`:'';this.refreshSelection();}
   refreshSelection(){
@@ -118,7 +137,7 @@ export class SurfaceTaxels{
     this.highlight.visible=!!placement&&this.visible&&p.source===this.mode;
     if(!this.highlight.visible)return;
     group.mesh.add(this.highlight);this.highlight.position.copy(placement.position).addScaledVector(placement.normal,.0004);
-    this.highlight.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),placement.normal);markerScale(this.highlight,group.spec);
+    this.highlight.quaternion.setFromUnitVectors(new THREE.Vector3(0,0,1),placement.normal);markerScale(this.highlight,group.spec,group.footprints[p.index]);
   }
   pick(raycaster,screen){
     if(!this.visible)return null;
@@ -152,5 +171,5 @@ export class SurfaceTaxels{
     const region=hit.object.userData.region,index=hit.instanceId,entry=this.data[region];
     return {region,index,source:this.mode,value:entry?.values?.[index],name:REGION_NAMES[region],point:hit.point};
   }
-  dispose(){this.clear();this.circle.dispose();this.ringGeometry.dispose();this.markerMaterial.dispose();this.borderMaterial.dispose();this.highlight.material.dispose();}
+  dispose(){this.clear();this.circle.dispose();this.sensorRing.dispose();this.ringGeometry.dispose();this.markerMaterial.dispose();this.borderMaterial.dispose();this.highlight.material.dispose();}
 }

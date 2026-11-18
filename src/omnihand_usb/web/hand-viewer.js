@@ -15,7 +15,7 @@ const vec=v=>new THREE.Vector3(...v);
 function origin(object, item){object.position.set(...item.xyz);object.rotation.set(...item.rpy,'ZYX');}
 let renderer,scene,camera,controls,root,center,size,referenceDistance;
 let modelReady=false,poseFitted=false,cameraInitialized=false,animation=null,grid=null,lastPoseSequence=-1;
-let taxels=null,unfolded=false,pointPinned=false,targetPreview=null,lastMotionId=null;
+let taxels=null,pointPinned=false;
 const directions={palm:new THREE.Vector3(1,.13,-.16).normalize(),back:new THREE.Vector3(-1,.13,-.16).normalize()};
 
 function bounds(direction){
@@ -81,43 +81,35 @@ function paint(){
     mesh.material.wireframe=wireframe;
     mesh.material.opacity=1;mesh.material.transparent=false;
   }
-  const details=taxels&&payload?taxels.update(data,payload.state,{mode:payload.mode,maximum:payload.maximum,visible:useHeat&&!targetPreview}):null;
+  const details=taxels&&payload?taxels.update(data,payload.state,{mode:payload.mode,maximum:payload.maximum,visible:useHeat}):null;
   const tooltip=document.getElementById('taxel-tooltip'),point=taxels?.selection;
   if(!tooltip.hidden&&point?.source===payload?.mode&&tooltip.lastChild)tooltip.lastChild.textContent=`${point.source==='raw'?'原始':'普通'}触觉值：${data[point.region]?.values?.[point.index]??'--'}`;
   label.textContent=selected==='ALL'?'18 个模型部件 · 10 个驱动轴':`${names[selected]} · ${data[selected]?.values?.length||0} 个独立触点`;
-  document.getElementById('taxel-count').textContent=targetPreview?'目标姿态预览 · 三维触觉暂隐藏':details?.count?`${details.count} 个${payload.mode==='raw'?'原始':'普通'}触点 · ${details.freshCount?'实时':'已过期'} · 表面投影`:'等待逐触点数据';
+  document.getElementById('taxel-count').textContent=details?.count?`${details.count} 个${payload.mode==='raw'?'原始':'普通'}触点 · 非零 ${details.activeCount} · ${details.freshCount?(payload.state.mode==='demo'?'模拟':'实时'):'已过期'}`:'等待逐触点数据';
 }
 function update(){
   if(!payload||!model)return;
   const s=payload.state;
-  if(s.control?.running||(s.control?.motion_id&&s.control.motion_id!==lastMotionId)){
-    if(targetPreview||unfolded)poseFitted=false;
-    targetPreview=null;unfolded=false;
-    const button=document.getElementById('model-pose');button.setAttribute('aria-pressed','false');button.classList.remove('active');button.textContent='展开查看';
-  }
-  lastMotionId=s.control?.motion_id||null;
-  const pose=targetPreview?.pose||s.pose;
+  const pose=s.pose;
   if(s.sequence<lastPoseSequence)poseFitted=false;
   lastPoseSequence=s.sequence;
   if(s.device?.hand==='left'){
     root.visible=false;status.textContent='当前资源为右手模型，左手连接不套用右手姿态';return;
   }
   root.visible=true;
-  if((pose?.joints_rad && !pose.error)||unfolded){
-    const angles=unfolded?Object.fromEntries([...joints.keys()].map(name=>[name,name==='R_thumb_roll_joint'||name==='R_thumb_mcp_joint'?-Math.PI/2:0])):pose.joints_rad;
-    for(const [name,angle] of Object.entries(angles)){
+  if(pose?.joints_rad && !pose.error){
+    for(const [name,angle] of Object.entries(pose.joints_rad)){
       const joint=joints.get(name);
       if(joint && Number.isFinite(angle))joint.group.quaternion.setFromAxisAngle(joint.axis,angle);
     }
     if(modelReady && !poseFitted){poseFitted=true;fitModel(false);}
   }
   const fresh=s.connected && Date.now()-Date.parse(s.positions_at)<3000,simulated=s.mode==='demo';
-  document.getElementById('model-pose').textContent=unfolded?(simulated?'恢复模拟':'恢复实测'):'展开查看';
-  status.textContent=targetPreview?`动作预览：${targetPreview.name} · 尚未下发`:unfolded?`展开示意 · 触觉为${simulated?'模拟数据':'实测'}`:fresh && pose?.joints_rad?`${simulated?'模拟':'实测'}位置 → 官方关节解算`:!s.connected?(pose?.joints_rad?'已断开 · 保留最后姿态':'未连接 · 模型零位'):pose?.error||'等待关节反馈';
-  status.classList.toggle('model-pose-hint',unfolded||!!targetPreview);host.dataset.poseMode=targetPreview?'action-preview':unfolded?'unfolded-display':simulated?'simulated':'measured';
-  status.classList.toggle('live',!targetPreview&&!!fresh && !!pose?.joints_rad);
+  status.textContent=fresh && pose?.joints_rad?`${simulated?'模拟反馈':'实时反馈'} → 官方关节解算`:!s.connected?(pose?.joints_rad?'已断开 · 保留最后姿态':'未连接 · 模型零位'):pose?.error||'等待新的关节反馈';
+  host.dataset.poseMode=simulated?'simulated':'measured';
+  status.classList.toggle('live',!!fresh && !!pose?.joints_rad);
   const clipped=pose?.clamped_for_display||[];
-  document.getElementById('pose-note').textContent=targetPreview?'当前显示目标动作预览，未下发；三维触觉暂隐藏，二维仍显示当前读数。':`主动关节由${simulated?'模拟':'实测'}电机位置换算，被动关节由官方求解器计算。`+(clipped.length?`轴 ${clipped.join('、')} 轻微越界，仅三维输入限幅；原始反馈保留。`:'');
+  document.getElementById('pose-note').textContent=`模型始终使用${simulated?'模拟设备':'实机'}反馈，目标编辑不改变三维姿态。被动关节由官方求解器计算。`+(clipped.length?`轴 ${clipped.join('、')} 轻微越界，仅三维输入限幅；原始反馈保留。`:'');
   paint();
 }
 
@@ -224,11 +216,6 @@ async function initialize(){
   }
 }
 window.addEventListener('omnihand-state',event=>{payload=event.detail;update();});
-window.addEventListener('omnihand-action-preview',event=>{
-  targetPreview=event.detail;unfolded=false;poseFitted=false;
-  const button=document.getElementById('model-pose');button.setAttribute('aria-pressed','false');button.classList.remove('active');button.textContent='展开查看';
-  update();fitModel(true);
-});
 window.addEventListener('tactile-region-selected',event=>select(event.detail,false));
 window.addEventListener('tactile-point-selected',event=>{
   const p=event.detail;if(!taxels||p.source!==payload?.mode)return;
@@ -240,10 +227,5 @@ document.querySelectorAll('[data-camera]').forEach(button=>button.addEventListen
 document.getElementById('model-region').addEventListener('change',event=>select(event.target.value));
 document.getElementById('model-color').addEventListener('change',paint);
 document.getElementById('model-fit').addEventListener('click',()=>fitModel(true));
-document.getElementById('model-pose').addEventListener('click',event=>{
-  targetPreview=null;
-  unfolded=!unfolded;poseFitted=false;event.currentTarget.setAttribute('aria-pressed',String(unfolded));
-  event.currentTarget.classList.toggle('active',unfolded);update();fitModel(true);
-});
 document.getElementById('model-wireframe').addEventListener('click',event=>{wireframe=!wireframe;event.currentTarget.classList.toggle('active',wireframe);event.currentTarget.setAttribute('aria-pressed',String(wireframe));paint();});
 initialize();
