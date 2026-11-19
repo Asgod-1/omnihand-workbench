@@ -94,3 +94,53 @@ main{margin-left:var(--sidebar);width:calc(100% - var(--sidebar));max-width:none
 .live-joints{margin-bottom:14px}.live-joints .axis-controls{padding:12px 16px;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px}.axis-feedback{grid-column:1/-1;font-size:10px;font-variant-numeric:tabular-nums;color:#258d78;background:#eef8f4;border-radius:4px;padding:4px 6px}.joint-live-status{padding:0 16px;font-size:10px;color:#7e93ad;line-height:1.7}.live-joints .save-motion{margin:0;padding:10px 16px 14px;border-top:1px solid #edf1f7}.live-joints [hidden]{display:none!important}.live-joints input:disabled{opacity:.45}
 @media(max-width:1100px){.live-joints .axis-controls{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:650px){.live-joints .axis-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .axis-feedback.stale{color:#8995a5;background:#f1f4f8}
+
+/* The first viewport is dedicated to feedback: 3D on the left, seven maps on the right. */
+:root{--sidebar:144px}
+.sidebar{padding:22px 12px}.brand{font-size:15px;gap:7px}.brand-mark{width:32px;height:32px;font-size:23px}.brand small{font-size:6px;letter-spacing:1px}.device-tile{padding:16px 8px}
+main{padding-left:12px;padding-right:12px}
+.topbar{height:34px;position:sticky;top:0;z-index:25;background:var(--bg)}
+.topbar .stop-button{font-size:10px;padding:5px 9px;margin-left:5px}
+.heading{margin:8px 0;min-height:30px}.heading .eyebrow,.heading p{display:none}h1{font-size:21px;margin:0}
+.demo-banner{padding:3px 10px;margin-bottom:7px;font-size:9px;line-height:1.5}
+.metrics{margin:0 0 12px;gap:10px}.metric{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px}.metric>span{font-size:10px}.metric strong{font-size:19px;margin:0}.metric>div{display:none}
+
+.observation-stage{display:grid;grid-template-columns:minmax(300px,.85fr) minmax(0,1.25fr);gap:12px;height:calc(100dvh - 124px);min-height:420px;margin-bottom:12px;align-items:stretch}
+.observation-stage>.panel{height:100%;min-height:0;margin:0;position:relative;top:auto;display:flex;flex-direction:column}
+.observation-stage .panel-heading{padding:6px 10px;min-height:34px;flex-shrink:0}
+.observation-stage .model-panel .badge{display:none}.observation-stage .model-live{font-size:9px;max-width:175px}
+.observation-stage .model-toolbar{padding:6px 8px;gap:5px;flex-shrink:0}.observation-stage .model-toolbar select{font-size:9px;padding:5px;max-width:110px}.observation-stage .camera-buttons button{font-size:10px;padding:5px 7px}
+.observation-stage #hand-viewport{height:auto;min-height:0;flex:1}
+.observation-stage .model-caption{padding:7px 10px;gap:5px;font-size:9px;flex-shrink:0;flex-wrap:wrap}.observation-stage .model-caption>span:last-child{font-size:8px}
+.observation-stage .model-details{padding:0 10px;flex-shrink:0}.observation-stage .model-details summary{padding:6px 0}.observation-stage .model-details p{font-size:9px;margin-bottom:6px}
+
+.observation-stage .tactile-toolbar{padding:5px 10px;gap:6px;flex-shrink:0;min-height:29px;flex-wrap:wrap}.observation-stage .tactile-toolbar strong{font-size:10px}.observation-stage .taxel-display-options{gap:7px}.observation-stage .taxel-display-options select{font-size:9px;padding:4px}
+.observation-stage .tactile-description{display:none}.observation-stage .raw-status{padding:2px 6px;margin:0 10px 5px;font-size:9px;line-height:13px;flex-shrink:0}
+.observation-stage .tactile-maps{flex:1;min-height:0;overflow:auto;padding:0 10px;scrollbar-width:thin}
+.observation-stage .raw-arrays{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,.43fr) minmax(0,.57fr);gap:6px;padding:0;height:100%;min-height:0}
+.observation-stage .raw-arrays .all-fingers,.observation-stage .raw-arrays .all-surfaces{display:grid;gap:6px;padding:0;height:100%;min-height:0;align-items:stretch}
+.observation-stage .all-fingers{grid-template-columns:repeat(5,minmax(0,1fr))}.observation-stage .all-surfaces{grid-template-columns:repeat(2,minmax(0,1fr))}
+.observation-stage .taxel-card{min-height:0;display:flex;flex-direction:column}
+.observation-stage .taxel-card>header{padding:3px 6px;min-height:20px;flex-shrink:0}.observation-stage .taxel-card h3{font-size:10px;margin:0}.observation-stage .card-count{font-size:8px}
+.observation-stage .taxel-orientation{font-size:7px;line-height:10px;min-height:10px;padding:0;flex-shrink:0}.observation-stage .surface-card .taxel-orientation{display:none}
+.observation-stage .raw-arrays .taxel-card svg{width:100%;height:0;min-height:0;flex:1;padding:0 3px}
+.observation-stage .taxel-card>footer{display:none}.observation-stage .card-empty{min-height:0;flex:1;padding:4px;font-size:9px}
+.observation-stage .tactile-panel.hide-indices .point-value{font-size:15px}
+.observation-stage .color-legend{margin:0;padding:5px 10px;font-size:8px;min-height:20px;flex-shrink:0}
+.observation-stage .all-point-inspector{margin:0 10px 8px;padding:5px 7px;gap:8px;min-height:38px;flex-shrink:0}.observation-stage .all-point-inspector>div:first-child{min-width:64px;gap:2px}.observation-stage .all-point-inspector>strong{font-size:20px;min-width:27px}.observation-stage .all-point-inspector p{font-size:8px;line-height:1.5}.observation-stage .all-point-inspector .point-lock{padding:5px;font-size:8px}
+.observation-stage .tactile-panel>.panel-footnote{display:none}
+
+.observation-stage .ordinary-only .raw-arrays{display:none}.observation-stage .ordinary-only #ordinary-block{height:100%;display:flex;flex-direction:column}
+.observation-stage .ordinary-only .ordinary-heading{padding:4px 6px;min-height:24px}.observation-stage .ordinary-only .ordinary-heading small{display:none}
+.observation-stage .ordinary-only .ordinary-overview{flex:1;min-height:0;padding:0;display:grid;grid-template-columns:repeat(10,minmax(0,1fr));grid-template-rows:minmax(0,.43fr) minmax(0,.57fr);gap:6px}
+.observation-stage .ordinary-only .finger-card{grid-column:span 2}.observation-stage .ordinary-only .surface-card{grid-column:span 5}.observation-stage .ordinary-only .taxel-card>header{flex-direction:row}.observation-stage .ordinary-only .taxel-card svg{height:0;min-height:0;flex:1;padding:0 3px}
+
+.controls-stage{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr);gap:12px;align-items:start;margin-bottom:14px}
+.controls-stage>.panel{margin:0}.controls-stage .motion-content{padding:0 14px 12px}.controls-stage .motion-presets{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.controls-stage .preset-card{display:grid;grid-template-columns:30px minmax(0,1fr);text-align:left;column-gap:7px;row-gap:2px;padding:8px 7px}.controls-stage .preset-icon{grid-row:span 2;font-size:23px;line-height:30px}.controls-stage .preset-card strong{font-size:11px}.controls-stage .preset-card small{font-size:8px}
+.controls-stage .motion-target-row{flex-direction:column;align-items:stretch;gap:9px}.controls-stage .motion-target-summary small{max-width:none}.controls-stage .motion-execution{flex-wrap:wrap}.controls-stage .motion-feedback{grid-template-columns:1fr}
+.controls-stage .live-joints .axis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:12px}.controls-stage .motion-power-actions>span{display:block}
+
+@media(max-width:1100px){:root{--sidebar:64px}.sidebar{padding:16px}.sidebar .brand>span:last-child,.sidebar .side-label,.sidebar .nav-item,.sidebar .device-tile,.sidebar .scope,.sidebar .side-bottom{display:none}.observation-stage{grid-template-columns:minmax(280px,.85fr) minmax(0,1.25fr)}}
+@media(max-width:900px){.observation-stage{height:auto;min-height:0;grid-template-columns:1fr}.observation-stage>.model-panel{height:440px}.observation-stage>.tactile-panel{height:600px}.controls-stage{grid-template-columns:1fr}.controls-stage .live-joints .axis-controls{grid-template-columns:repeat(3,minmax(0,1fr))}.heading{flex-wrap:wrap}.connect-controls{max-width:none}}
+@media(max-width:650px){:root{--sidebar:0px}.sidebar{display:none}main{padding:0 8px 12px}.topbar .breadcrumb{display:none}.connection{width:100%}.topbar .stop-button{margin-left:auto}.heading h1{font-size:19px}.observation-stage>.tactile-panel{height:640px}.observation-stage .all-point-inspector{flex-wrap:wrap}.observation-stage .all-point-inspector>div:nth-of-type(2){flex:1;min-width:120px}.controls-stage .live-joints .axis-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}

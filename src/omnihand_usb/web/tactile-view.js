@@ -50,6 +50,7 @@ export class TactilePanel{
     const ordinary=ordinaryEnabled?(state.tactile||{}):{};this.state=state;this.dataByMode={raw:rawData,ordinary};
     $('ordinary-block').hidden=!ordinaryEnabled;
     const rawTotal=Object.values(rawData).reduce((n,e)=>n+(e.values?.length||0),0),ordinaryTotal=Object.values(ordinary).reduce((n,e)=>n+(e.values?.length||0),0);
+    document.querySelector('.tactile-panel').classList.toggle('ordinary-only',ordinaryEnabled&&ordinaryTotal>0&&rawTotal===0);
     this.mode=rawTotal||!ordinaryEnabled?'raw':'ordinary';this.data=this.dataByMode[this.mode];
     this.maximum=$('color-scale').value==='fixed'?255:Math.max(8,...Object.values(this.dataByMode).flatMap(data=>Object.values(data).flatMap(e=>e.values||[])));
     const rawLabel=statusNames[raw.status]||'等待原始数据';
