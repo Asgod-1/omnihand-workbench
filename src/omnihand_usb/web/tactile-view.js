@@ -55,7 +55,7 @@ export class TactilePanel{
     this.maximum=$('color-scale').value==='fixed'?255:Math.max(8,...Object.values(this.dataByMode).flatMap(data=>Object.values(data).flatMap(e=>e.values||[])));
     const rawLabel=statusNames[raw.status]||'等待原始数据';
     $('raw-status').className='raw-status'+(raw.status==='ready'?' ready':'');
-    $('raw-status').textContent=raw.status==='ready'?`${rawTotal} 点完整返回 · 五指 / 手心 / 手背同时显示`:raw.error||rawLabel;
+    $('raw-status').textContent=raw.status==='ready'?`原始触觉 · ${rawTotal} 点`:raw.error||rawLabel;
     $('ordinary-total').textContent=ordinaryTotal?`${ordinaryTotal} 点 · 独立读取`:'等待普通触觉';
     $('tactile-description').textContent='点位按官方上位机排布 · 0 号从指根端开始';
     $('legend-high').textContent=this.maximum;

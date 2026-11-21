@@ -158,29 +158,64 @@ class DemoHand:
     control_capabilities = ('position','power','hold','joint','pt','pvt','mixed_joint')
     ordinary_tactile_enabled = False
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *, seconds_per_range=.84, clock=time.monotonic):
         self.info = {"model": "演示设备（非实机）", "port": "DEMO", "hand": "right", "transport": "DEMO", "dof": 10, "hardware_version": "demo", "firmware_version": "demo", "voltage_mv": None, "sdk_version": "not required"}
         self._positions=[2000,1800,3800,2000,3800,3800,2050,3800,2050,3800]
         self._target=list(self._positions)
         self._enabled=False
+        self._seconds_per_range = seconds_per_range
+        self._clock = clock
+        self._motion = [None] * 10
 
     def open(self):
         return self.info
 
     def positions(self):
-        return list(self._positions)
+        self._advance_motion(self._clock())
+        return [round(value) for value in self._positions]
+
+    @property
+    def moving(self):
+        return any(segment is not None for segment in self._motion)
+
+    def _advance_motion(self, now):
+        for axis, segment in enumerate(self._motion):
+            if segment is None:
+                continue
+            start, end, began, duration, smooth = segment
+            progress = min(1.0, max(0.0, (now - began) / duration))
+            if progress == 1.0:
+                self._positions[axis] = end
+                self._motion[axis] = None
+            else:
+                eased = progress * progress * (3 - 2 * progress) if smooth else progress
+                self._positions[axis] = start + (end - start) * eased
+
+    def _drive(self, targets, *, smooth=True):
+        now = self._clock()
+        self._advance_motion(now)
+        distance = max(abs(value - self._positions[axis]) for axis, value in targets)
+        duration = max(.08 if smooth else .03, self._seconds_per_range * distance / 4096) if self._seconds_per_range else 0
+        for axis, value in targets:
+            self._target[axis] = value
+            if not self._enabled:
+                continue
+            start = self._positions[axis]
+            if duration and abs(start - value) >= 1:
+                self._motion[axis] = (start, value, now, duration, smooth)
+            else:
+                self._positions[axis] = value
+                self._motion[axis] = None
+        return {'positions': [round(value) for value in self._positions], 'faults': [0] * 10}
 
     def set_positions(self, positions):
         from .motion_protocol import target_vector
-        self._target=target_vector(positions)
-        if self._enabled:self._positions=list(self._target)
-        return {'positions':list(self._positions),'faults':[0]*10}
+        return self._drive(list(enumerate(target_vector(positions))))
 
     def set_joint_position(self,index,position):
         from .control_profile import joint_target
-        joint_target(index,position);self._target[index-1]=position
-        if self._enabled:self._positions[index-1]=position
-        return {'positions':self.positions(),'faults':[0]*10}
+        joint_target(index,position)
+        return self._drive([(index-1, position)], smooth=False)
 
     def set_mixed(self,positions,profile,index=None):
         from .control_profile import control_profile
@@ -192,8 +227,12 @@ class DemoHand:
 
     def set_enabled(self, enabled):
         if type(enabled) is not bool:raise ValueError('enabled must be boolean')
-        self._enabled=enabled
-        if enabled:self._positions=list(self._target)
+        self._advance_motion(self._clock())
+        self._enabled = enabled
+        if enabled:
+            self._drive(list(enumerate(self._target)))
+        else:
+            self._motion = [None] * 10
         return {'power_state':int(enabled),'enabled':enabled}
 
     def tactile(self, region):

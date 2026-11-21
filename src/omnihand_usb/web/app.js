@@ -6,6 +6,7 @@ const jointNames = ["拇指旋转", "拇指侧摆", "拇指屈伸", "食指侧�
 const errorNames = {stalled:"堵转", overheat:"过热", over_current:"过流", motor_except:"电机异常", commu_except:"通信异常"};
 const $ = id => document.getElementById(id);
 let state = {connected:false, recording:false}, busy = false, lastSequence = -1, lastPositionTime = null, history = [], seenPort = null, actionError = null, seenMode = null;
+let lastFullRender = 0;
 const tactilePanel = new TactilePanel(()=>render(state));
 const motionPanel = new MotionPanel(api,async()=>render(await api('/api/state')));
 
@@ -41,8 +42,10 @@ async function refreshPorts() {
 }
 
 function render(s) {
+  if (s.server_time && state.server_time && s.server_time < state.server_time) return;
   if (seenPort !== (s.device?.port || null) || s.sequence < lastSequence) { history=[];lastSequence=-1;lastPositionTime=null;seenPort=s.device?.port || null; }
   state=s;
+  lastFullRender=performance.now();
   motionPanel.render(s);
   if (seenMode!==s.mode) { $("transport-select").value=["usb","canfd","demo"].includes(s.mode)?s.mode:"usb";seenMode=s.mode; }
   const isCan=s.mode==="canfd";
@@ -97,9 +100,11 @@ function render(s) {
     const label=row.querySelector(".status-label");label.textContent=errors?(errors.length?"异常":"正常"):"--";label.className="status-label"+(errors?(errors.length?" bad":" good"):"");label.title=errors?.join("、")||(isCan?"本次 CAN 查询只提供整手错误码，未读取逐轴标志":"");
   });
   $("diag-age").textContent=diag.temperature_c_at?`温度 / 诊断为低频读取 · 最近 ${Math.floor(age(diag.temperature_c_at))}s 前`:"";
-  if (s.positions && s.positions_at!==lastPositionTime) { history.push([...s.positions]);if(history.length>90)history.shift();lastPositionTime=s.positions_at; }
+  if (s.positions && s.positions_at!==lastPositionTime) {
+    history.push([...s.positions]);if(history.length>90)history.shift();lastPositionTime=s.positions_at;
+    drawChart();
+  }
   lastSequence=s.sequence;
-  drawChart();
   $("footer-status").textContent=s.connected?`${device.port} · 整手三维 / 位置 / ${isCan?'原始触觉':'触觉'} · ${s.control?.armed?'位置控制已开启':'控制锁定'}`:"等待连接 · 设备始终由一个采集进程访问";
   window.dispatchEvent(new CustomEvent('omnihand-state',{detail:{state:s,tactile:selection.data,mode:selection.mode,scale:$('color-scale').value,maximum:selection.maximum}}));
   if (!busy) notice(actionError || (s.errors?.length?s.errors.join("；"):null));
@@ -132,5 +137,29 @@ $('export-snapshot').addEventListener('click',()=>{
   const anchor=document.createElement('a');anchor.href=url;anchor.download=`omnihand_snapshot_${new Date().toISOString().replace(/[:.]/g,'-')}.json`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 window.addEventListener('omnihand-region',event=>{if(event.detail!=='ALL')tactilePanel.selectRegion(event.detail);});
-initializeRows();refreshPorts().catch(e=>notice(e.message));
-(async function poll(){try{render(await api("/api/state"));}catch(e){$("status-dot").className="status-dot error";$("status-text").textContent="服务未响应";notice("无法读取本地服务，请确认采集程序仍在运行。 "+e.message);}finally{setTimeout(poll,500);}})();
+initializeRows();drawChart();refreshPorts().catch(e=>notice(e.message));
+(async function poll(){
+  let delay=500;
+  try{
+    const sample=await api("/api/state");
+    const fast=sample.connected&&sample.control?.armed;
+    if(fast)delay=65;
+    if(sample.server_time<state.server_time)return;
+    const c=sample.control, previous=state.control;
+    const sameControl=previous&&['session_id','status','armed','running','power_state','motion_id','error'].every(key=>c?.[key]===previous[key])
+      && c?.stage?.index===previous.stage?.index;
+    if(fast&&sameControl&&(age(sample.positions_at)<3)===(age(state.positions_at)<3)&&performance.now()-lastFullRender<220){
+      state=sample;
+      motionPanel.renderFeedback(sample);
+      window.dispatchEvent(new CustomEvent('omnihand-pose',{detail:sample}));
+    }else{
+      render(sample);
+    }
+  }catch(e){
+    $("status-dot").className="status-dot error";
+    $("status-text").textContent="服务未响应";
+    notice("无法读取本地服务，请确认采集程序仍在运行。 "+e.message);
+  }finally{
+    setTimeout(poll,delay);
+  }
+})();

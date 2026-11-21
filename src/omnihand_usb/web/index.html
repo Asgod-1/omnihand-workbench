@@ -19,18 +19,42 @@
     <header class="topbar"><div class="breadcrumb">开发工作台 <span>/</span> <span id="transport-breadcrumb">数据验证</span></div><div class="connection"><span id="status-dot" class="status-dot"></span><span id="status-text">未连接</span><span class="readonly" id="session-access">CONTROL LOCKED</span><button id="motion-stop" class="stop-button" disabled>停止并保持</button></div></header>
     <section class="heading"><div><div class="eyebrow">OMNIHAND / LIVE DIGITAL VIEW</div><h1>整只手，一目了然<span class="title-dot">.</span></h1><p>实时反馈、单轴控制与原始触觉。</p></div><div class="connect-controls"><label for="transport-select">连接</label><select id="transport-select" aria-label="通信方式"><option value="usb">USB 直连手</option><option value="canfd">达妙 CAN FD</option><option value="demo">演示数据</option></select><select id="port-select" aria-label="USB 串口"><option value="auto">自动检测</option></select><button id="refresh-ports" class="icon-button" title="刷新串口" aria-label="刷新串口">↻</button><select id="can-channel" aria-label="CAN 物理接口" hidden><option value="1">CAN1</option><option value="2">CAN2</option></select><input id="can-id" aria-label="CAN 节点 ID" value="0x09" maxlength="6" hidden><button id="connect-button" class="primary">连接设备</button></div></section>
     <div id="notice" class="notice" role="status" hidden></div>
-    <div id="demo-banner" class="demo-banner" hidden>演示模式 · 当前显示合成数据，未连接真实灵巧手。</div>
-    <section class="observation-stage" aria-label="三维与七区触觉同屏观察">
+    <div id="demo-banner" class="demo-banner" hidden>离线演示 · 触觉为合成数据，部分预设按三维模型间距微调。</div>
+    <section class="observation-stage" aria-label="三维、触觉与关节控制">
       <article class="panel model-panel">
-        <div class="panel-heading"><div><span class="section-number">01</span><h2>整手三维</h2><span class="badge">官方右手 URDF</span></div><span class="model-live" id="model-status">正在加载模型</span></div>
+        <div class="panel-heading"><h2>整手三维</h2><span class="model-live" id="model-status">正在加载模型</span></div>
+        <div class="motion-dock" aria-label="三维动作控制">
+          <div class="motion-power-actions">
+            <span id="motion-power">电机状态待查询</span>
+            <button id="control-arm" class="secondary" disabled>开启控制</button>
+            <button id="motor-enable" class="secondary" disabled>电机使能</button>
+            <button id="motor-disable" class="release-button" hidden>失能 · 释放保持力</button>
+          </div>
+          <div class="motion-execution">
+            <select id="motion-preset-select" aria-label="选择动作预设" disabled><option value="">选择预设</option></select>
+            <select id="motion-mode" aria-label="位置发送方式">
+              <option value="staged" selected>分段切换</option>
+              <option value="direct">直接发送</option>
+              <option value="smooth">电脑渐变</option>
+            </select>
+            <label id="motion-duration-field" hidden>时长 <input id="motion-duration" type="number" min="0.5" max="30" step="0.5" value="4" aria-label="动作渐变时长"> 秒</label>
+            <button id="motion-execute" class="primary" disabled>分段发送</button>
+          </div>
+          <div class="motion-feedback">
+            <span id="motion-message" role="status">请先连接设备</span>
+            <small id="motion-detail"></small>
+            <progress id="motion-progress" max="1" value="0" aria-label="动作进度" hidden></progress>
+          </div>
+        </div>
         <div class="model-toolbar"><div class="camera-buttons"><button class="active" data-camera="palm">掌面</button><button data-camera="back">手背</button><button id="model-fit" title="以当前姿态重新居中和适配视口">居中</button><button id="model-wireframe" aria-pressed="false">线框</button></div><select id="model-region" aria-label="三维选中区域"><option value="ALL">整手</option><option value="THUMB">拇指</option><option value="INDEX">食指</option><option value="MIDDLE">中指</option><option value="RING">无名指</option><option value="LITTLE">小指</option><option value="PALM">手心</option><option value="DORSUM">手背</option></select><select id="model-color" aria-label="模型颜色"><option value="tactile">逐触点热力</option><option value="geometry">机械外观</option></select></div>
         <div id="hand-viewport"><div class="viewport-label">OMNIHAND 2025 <span>RIGHT / 10 DOA / 16 DOF</span></div><div id="model-loading">正在载入官方几何模型…</div><div id="taxel-tooltip" role="status" hidden></div><div class="viewport-help">拖动旋转 · 滚轮缩放 · 悬停查看每个触点</div><div class="viewport-axis">Z <span>↑</span><small>URDF</small></div></div>
         <div class="model-caption"><span id="model-selection">等待模型</span><span id="taxel-count">等待逐触点数据</span></div>
         <details class="model-details"><summary>姿态与触点位置说明</summary><p id="pose-note">主动关节由实测位置换算，被动关节由官方求解器计算。</p><p>触点限制在指腹纹路、掌面L形区域与背部传感垫，沿用官方点序。标记大小只用于显示，单点精确位置与面积仍需标定；模型始终显示设备反馈，不使用目标姿态替代。</p></details>
       </article>
+      <div class="observation-rail">
       <article class="panel tactile-panel">
-        <div class="panel-heading"><div><span class="section-number">02</span><h2>全手触觉</h2><span class="badge">七区同时显示</span></div><button id="export-snapshot" class="secondary" disabled>导出快照</button></div>
-        <div class="tactile-toolbar"><strong>原始触觉阵列</strong><div class="taxel-display-options"><label><input id="show-point-indices" type="checkbox">索引</label><label><input id="show-point-values" type="checkbox" checked>数值</label><select id="color-scale" aria-label="触觉颜色范围"><option value="auto">统一自动色阶</option><option value="fixed">固定 0–255</option></select></div></div>
+        <div class="panel-heading"><h2>全手触觉</h2><button id="export-snapshot" class="secondary" disabled>导出快照</button></div>
+        <div class="tactile-toolbar"><div class="taxel-display-options"><label><input id="show-point-indices" type="checkbox">索引</label><label><input id="show-point-values" type="checkbox" checked>数值</label><select id="color-scale" aria-label="触觉颜色范围"><option value="auto">自动色阶</option><option value="fixed">固定 0–255</option></select></div></div>
         <div class="tactile-description" id="tactile-description"></div><div id="raw-status" class="raw-status" role="status"></div>
         <div class="tactile-maps">
         <div class="raw-arrays"><div id="raw-fingers" class="all-fingers" aria-label="五指全部原始触点"></div>
@@ -43,30 +67,31 @@
         <aside class="all-point-inspector" aria-label="二维三维联动触点"><div><span class="inspector-label">当前触点</span><strong id="point-index">等待触点</strong></div><strong id="point-value">--</strong><div><p id="point-position">悬停触点查看位置</p><p>读取于 <span id="point-time">--</span></p></div><button id="point-lock" class="point-lock" aria-pressed="false">跟随指针</button></aside>
         <div class="panel-footnote">二维点序与不规则轮廓取自官方上位机 2.7.2。三维将同一索引投影到模型表面，精确毫米位置及受力仍需接触标定。</div>
       </article>
-    </section>
-    <section class="metrics" aria-label="设备摘要">
+      <section class="metrics" aria-label="设备摘要">
       <article class="metric"><span id="voltage-title">设备供电</span><strong id="voltage">--<small>V</small></strong><div id="voltage-note">等待设备信息</div></article>
       <article class="metric"><span>最高电机温度</span><strong id="temperature">--<small>℃</small></strong><div id="temperature-note">10 路电机温度</div></article>
       <article class="metric"><span>触觉测点</span><strong id="point-count">--<small>点</small></strong><div id="region-count">五指 / 手心 / 手背</div></article>
       <article class="metric"><span>有效位置帧</span><strong id="sequence">0<small>帧</small></strong><div id="last-updated">尚未开始采集</div></article>
-    </section>
-    <section class="controls-stage" aria-label="动作与实时关节控制">
+      </section>
+      </div>
+      <div class="operation-rail">
+      <section class="panel live-joints" aria-label="实时单轴控制">
+        <div class="panel-heading"><h2>实时关节控制</h2><button id="motion-capture" class="secondary" disabled>同步反馈</button></div>
+        <p id="joint-live-status" class="joint-live-status">开启控制并使能后可拖动。</p>
+        <div class="axis-controls" id="axis-controls"></div>
+        <div class="save-motion"><input id="motion-name" type="text" maxlength="32" placeholder="保存当前目标名称" aria-label="自定义动作名称"><button id="motion-save" class="secondary" disabled>保存为预设</button></div>
+      </section>
     <section class="panel motion-panel" aria-label="位置控制与预设动作">
-      <div class="panel-heading"><div><span class="section-number">↗</span><h2>动作工作台</h2><span class="badge" id="control-badge">控制已锁定</span></div><div class="motion-power-actions"><span id="motion-power">电机状态待查询</span><button id="control-arm" class="secondary" disabled>开启控制</button><button id="motor-enable" class="secondary" disabled>电机使能</button><button id="motor-disable" class="release-button" hidden>失能 · 释放保持力</button></div></div>
+      <div class="panel-heading"><div><h2>动作工作台</h2><span class="badge" id="control-badge">控制已锁定</span></div></div>
       <div class="motion-content"><div class="motion-presets" id="motion-presets" aria-label="预设动作，选择后点击发送"></div>
         <div class="control-profile"><label>控制组合 <select id="control-mode" aria-label="控制组合"><option value="position">位置</option><option value="pt">位置＋电流 PT</option><option value="pvt">位置＋速度＋电流 PVT</option></select></label><label id="mixed-current-field" hidden>电流 <input id="mixed-current" type="number" min="0" max="1000" step="1" value="100" aria-label="混合控制电流mA"> mA</label><label id="mixed-velocity-field" hidden>速度 <input id="mixed-velocity" type="number" min="-4095" max="4096" step="1" value="500" aria-label="混合控制速度原始值"> 原始值</label><small>PT/PVT的电流参数不是N·m；选择组合不下发指令。</small></div>
-        <div class="motion-target-row"><div class="motion-target-summary"><span class="eyebrow">POSITION TARGET / 选择后发送</span><strong id="motion-target">尚未选择目标</strong><small id="motion-target-values">选择预设后点击发送，三维持续显示反馈。</small></div><div class="motion-execution"><label>发送方式 <select id="motion-mode" aria-label="位置发送方式"><option value="direct">直接发送</option><option value="smooth">电脑渐变</option></select></label><label id="motion-duration-field" hidden>渐变时长 <input id="motion-duration" type="number" min="0.5" max="30" step="0.5" value="4" aria-label="动作渐变时长"> 秒</label><button id="motion-execute" class="primary" disabled>直接发送</button></div></div>
-        <p class="motion-preview-note" id="motion-preview-note">预设选择只修改目标；发送时直接执行。下方滑块直接控制单轴。三维始终显示设备反馈。</p>
-
-        <div class="motion-feedback" role="status"><span id="motion-message">请先连接设备</span><small id="motion-detail">位置目标0–4096，不代表力或力矩。</small><progress id="motion-progress" max="1" value="0" hidden></progress></div>
+        <div class="motion-target-row">
+          <div class="motion-target-summary"><strong id="motion-target">尚未选择目标</strong><small id="motion-target-values">在三维面板发送选中的动作。</small></div>
+        </div>
+        <p class="motion-preview-note" id="motion-preview-note" hidden></p>
       </div><details class="motion-help"><summary>控制说明 · 停止依赖通信，失能会释放保持力</summary><p>停止操作会终止后续目标并发送当前位置保持指令，需等待通信应答；不能替代硬件急停。关闭网页不会终止后台动作或切断电源。</p></details>
     </section>
-    <section class="panel live-joints" aria-label="实时单轴控制">
-      <div class="panel-heading"><div><span class="section-number">↔</span><h2>实时关节控制</h2><span class="badge">单轴直接发送</span></div><button id="motion-capture" class="secondary" disabled>同步当前反馈</button></div>
-      <p id="joint-live-status" class="joint-live-status">开启控制并使能后可拖动；绿色数字始终为实际反馈。</p>
-      <div class="axis-controls" id="axis-controls"></div>
-      <div class="save-motion"><input id="motion-name" type="text" maxlength="32" placeholder="保存当前目标名称" aria-label="自定义动作名称"><button id="motion-save" class="secondary" disabled>保存为预设</button><small>数值范围0–4096；拖动只发送所选轴，其他轴继续原有运动。</small></div>
-    </section>
+    </div>
     </section>
     <section class="workspace">
       <div class="left-column">

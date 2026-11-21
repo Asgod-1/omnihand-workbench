@@ -3,7 +3,7 @@
   "source": "Unmodified omnihand==1.1.11 set_hand_gesture, loopback-only capture",
   "captured_id": "0x00130181",
   "encoding": "ten little-endian uint16 positions",
-  "capture_sha256": "3fe1e136fcba51e50066fe3451544090b9289a59291b7d38c45395a13a04355a",
+  "capture_sha256": "38bf9030da3a0a30b8652d26c6044a60e29240ce4bbe3278957c2e3d8c1ddce2",
   "presets": [
     {
       "id": "open",
@@ -86,6 +86,7 @@
       ],
       "source": "official_sdk_1.1.11",
       "source_gesture": "FIST2",
+      "demo_positions": [3361, 2417, 1899, 0, 46, 46, 0, 46, 4096, 46],
       "description": "官方右手位置手势"
     },
     {
@@ -107,6 +108,7 @@
       ],
       "source": "official_sdk_1.1.11",
       "source_gesture": "OK",
+      "demo_positions": [4096, 3781, 1564, 4096, 2470, 3731, 1686, 3832, 1790, 3922],
       "description": "官方右手位置手势"
     },
     {
@@ -149,6 +151,7 @@
       ],
       "source": "official_sdk_1.1.11",
       "source_gesture": "NUM1",
+      "demo_positions": [3106, 2836, 1507, 1536, 4069, 46, 0, 46, 4096, 46],
       "description": "官方右手位置手势"
     },
     {
@@ -170,6 +173,7 @@
       ],
       "source": "official_sdk_1.1.11",
       "source_gesture": "NUM2",
+      "demo_positions": [2408, 3757, 1251, 4096, 4069, 4069, 0, 46, 4096, 46],
       "description": "官方右手位置手势"
     },
     {
@@ -192,6 +196,98 @@
       "source": "official_sdk_1.1.11",
       "source_gesture": "ONE_HANDED_FINGER_HEART",
       "description": "官方右手位置手势"
+    },
+    {
+      "id": "three",
+      "name": "数字3",
+      "icon": "3",
+      "hand": "right",
+      "positions": [1710, 3709, 306, 4096, 4069, 4069, 2168, 4069, 2156, 46],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "NUM3",
+      "demo_positions": [1838, 3709, 434, 4096, 4069, 4069, 2168, 4069, 2156, 46],
+      "description": "伸出食指、中指和无名指"
+    },
+    {
+      "id": "four",
+      "name": "数字4",
+      "icon": "4",
+      "hand": "right",
+      "positions": [1710, 3709, 306, 4096, 4069, 4069, 1686, 4069, 863, 4069],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "NUM4",
+      "demo_positions": [1710, 3645, 306, 4096, 4069, 4069, 1686, 4069, 863, 4069],
+      "description": "收拇指、伸四指"
+    },
+    {
+      "id": "six",
+      "name": "数字6",
+      "icon": "🤙",
+      "hand": "right",
+      "positions": [2565, 122, 4093, 0, 46, 46, 1204, 46, 432, 4069],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "NUM6",
+      "description": "伸出拇指和小指"
+    },
+    {
+      "id": "eight",
+      "name": "数字8",
+      "icon": "8",
+      "hand": "right",
+      "positions": [2565, 122, 4093, 0, 4069, 46, 0, 46, 4096, 46],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "NUM8",
+      "description": "伸出拇指和食指"
+    },
+    {
+      "id": "ily",
+      "name": "爱你",
+      "icon": "🤟",
+      "hand": "right",
+      "positions": [2814, 122, 4093, 2560, 4069, 46, 1686, 46, 1725, 4069],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "ILY",
+      "description": "伸出拇指、食指和小指"
+    },
+    {
+      "id": "heart1",
+      "name": "心形1",
+      "icon": "♡",
+      "hand": "right",
+      "positions": [4096, 3418, 4093, 0, 2879, 2879, 0, 2879, 4096, 2879],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "HAND_HEART1",
+      "description": "官方心形手势1"
+    },
+    {
+      "id": "heart2",
+      "name": "心形2",
+      "icon": "♡",
+      "hand": "right",
+      "positions": [2921, 364, 1446, 0, 1831, 1831, 0, 1831, 4096, 1831],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "HAND_HEART2",
+      "description": "官方心形手势2"
+    },
+    {
+      "id": "heart3",
+      "name": "心形3",
+      "icon": "♡",
+      "hand": "right",
+      "positions": [3990, 3903, 2494, 0, 4069, 4069, 0, 4069, 4096, 4069],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "HAND_HEART3",
+      "description": "官方心形手势3"
+    },
+    {
+      "id": "clasping",
+      "name": "合拢",
+      "icon": "◌",
+      "hand": "right",
+      "positions": [2209, 2061, 3472, 4096, 2978, 2978, 4096, 2978, 432, 2978],
+      "source": "official_sdk_1.1.11",
+      "source_gesture": "CLASPING",
+      "description": "官方合拢手势"
     }
   ]
 }

@@ -16,7 +16,7 @@ from omnihand_usb.damiao import _NativeDamiaoHand
 
 class FakeHand(DemoHand):
     def __init__(self):
-        super().__init__();self.calls=[];self.fail_write=False;self.fault=False
+        super().__init__(seconds_per_range=0);self.calls=[];self.fail_write=False;self.fault=False
     def positions(self):self.calls.append(('read',threading.get_ident()));return super().positions()
     def diagnostics(self):self.calls.append(('diagnostics',threading.get_ident()));return super().diagnostics()
     def get_power_state(self):self.calls.append(('power_read',threading.get_ident()));return super().get_power_state()
@@ -252,10 +252,130 @@ class ControllerTests(unittest.TestCase):
         for _ in range(4):self.controller.tick(self.hand)
         self.assertEqual(self.hand.set_positions.call_count,2)
 
+    def test_canfd_finishes_at_measured_51_count_error_on_two_new_reads(self):
+        self.controller.bind(self.hand,'canfd','right')
+        self.session=self.controller.snapshot()['session_id']
+        self.ready()
+        target=self.hand.positions()
+        actual=list(target)
+        actual[6]+=51
+        self.hand.set_positions=Mock(return_value={'positions':target,'faults':[0]*10})
+        self.call('move',positions=target)
+        self.controller.tick(self.hand,poll_missing_feedback=False)
+        self.assertTrue(self.controller.snapshot()['running'])
+        self.controller.tick(self.hand,actual,poll_missing_feedback=False)
+        self.assertTrue(self.controller.snapshot()['running'])
+        self.controller.tick(self.hand,actual,poll_missing_feedback=False)
+        self.assertEqual(self.controller.snapshot()['status'],'completed')
+        self.assertEqual(self.controller.snapshot()['position_error'],51)
+        self.assertEqual(self.controller.snapshot()['arrival_tolerance'],64)
+        self.hand.set_positions.assert_called_once_with(target)
+
+    def test_stationary_out_of_range_ends_before_arrival_deadline(self):
+        self.ready()
+        actual=self.hand.positions()
+        self.hand.set_positions=Mock(return_value={'positions':actual,'faults':[0]*10})
+        target=[0]*10
+        self.call('move',positions=target)
+        self.controller.tick(self.hand,actual)
+        self.controller._plan.stationary_since-=1.2
+        self.controller.tick(self.hand,actual)
+        state=self.controller.snapshot()
+        self.assertEqual(state['status'],'not_reached')
+        self.assertIn('停滞',state['error'])
+        self.assertEqual([call.args[0] for call in self.hand.set_positions.call_args_list],[target,actual])
+
     def test_invalid_mode_or_smooth_duration_is_rejected_without_hardware_access(self):
         for body in ({'execution_mode':'unknown'},{'execution_mode':False},{'execution_mode':'smooth','duration':0}):
             with self.subTest(body=body),self.assertRaises(ValueError):self.call('move',positions=[0]*10,**body)
         self.assertEqual(self.hand.calls,[])
+
+    def test_staged_move_checks_feedback_before_each_clearance_step(self):
+        presets = {p['id']: p['positions'] for p in self.controller.catalog()['presets']}
+        self.hand._positions = list(presets['fist2'])
+        self.ready()
+        # The ACK may echo the commanded target even though the hand is still moving.
+        self.hand.set_positions = Mock(side_effect=lambda target: {'positions': target, 'faults': [0]*10})
+        result = self.call('move', preset_id='ok', execution_mode='staged')
+        self.assertEqual(result['stage']['total'], 5)
+        thumb_open = list(presets['fist2'])
+        thumb_open[2] = presets['open'][2]
+        self.hand.set_positions.assert_called_once_with(thumb_open)
+
+        def tick():
+            self.controller._plan.last_tick = -math.inf
+            self.controller.tick(self.hand)
+
+        tick()
+        tick()
+        self.hand.set_positions.assert_called_once_with(thumb_open)
+        self.assertEqual(self.controller.snapshot()['stage']['index'], 1)
+
+        for step in range(1, 6):
+            target = list(self.hand.set_positions.call_args.args[0])
+            self.hand._positions = target
+            tick()
+            self.assertEqual(self.controller.snapshot()['stage']['index'], step)
+            tick()
+            self.assertEqual(self.hand.set_positions.call_count, step)
+            if step < 5:
+                tick()
+                self.assertEqual(self.hand.set_positions.call_count, step+1)
+
+        sent = [c.args[0] for c in self.hand.set_positions.call_args_list]
+        for axis in (4, 5, 7, 9):
+            self.assertEqual(sent[1][axis], presets['open'][axis])
+            self.assertEqual(sent[2][axis], presets['open'][axis])
+        self.assertEqual(sent[3][2], thumb_open[2])
+        self.assertEqual(sent[-1], presets['ok'])
+        self.assertEqual(self.controller.snapshot()['status'], 'completed')
+
+    def test_staged_timeout_holds_the_current_position_and_cancels_remaining_steps(self):
+        self.ready()
+        before = self.hand.positions()
+        self.hand.set_positions = Mock(return_value={'positions': before, 'faults': [0]*10})
+        result = self.call('move', preset_id='fist2', execution_mode='staged')
+        self.assertGreater(result['stage']['total'], 1)
+        plan = self.controller._plan
+        plan.settle_at -= plan.arrival_timeout + 1
+        plan.last_tick = -math.inf
+        self.controller.tick(self.hand)
+        self.assertEqual(self.controller.snapshot()['status'], 'not_reached')
+        self.assertEqual(self.hand.set_positions.call_args.args[0], before)
+        self.controller.tick(self.hand)
+        self.assertEqual(self.hand.set_positions.call_count, 2)
+
+    def test_stop_between_clearance_steps_never_sends_the_next_stage(self):
+        self.ready()
+        result = self.call('move', preset_id='ok', execution_mode='staged')
+        self.assertGreater(result['stage']['total'], 1)
+        for _ in range(2):
+            self.controller._plan.last_tick = -math.inf
+            self.controller.tick(self.hand)
+        first = self.writes()[0][2]
+        self.assertEqual(len(self.writes()), 1)
+        self.assertEqual(self.controller.snapshot()['stage']['index'], 2)
+        self.call('stop')
+        self.controller.tick(self.hand)
+        self.assertEqual([write[2] for write in self.writes()], [first, first])
+        self.assertEqual(self.controller.snapshot()['status'], 'stopped')
+
+    def test_staged_move_at_target_does_not_open_and_close_again(self):
+        current = next(p['positions'] for p in self.controller.catalog()['presets'] if p['id']=='fist2')
+        self.hand._positions = list(current)
+        self.ready()
+        result = self.call('move', preset_id='fist2', execution_mode='staged')
+        self.assertEqual(result['stage']['total'], 1)
+        self.assertEqual([write[2] for write in self.writes()], [current])
+
+    def test_geometry_fitted_preset_only_applies_to_simulation(self):
+        demo = next(p for p in self.controller.catalog()['presets'] if p['id'] == 'fist2')
+        self.assertTrue(demo['demo_adjusted'])
+        self.controller.bind(self.hand, 'canfd', 'right')
+        hardware = next(p for p in self.controller.catalog()['presets'] if p['id'] == 'fist2')
+        self.assertEqual(hardware['positions'], [2209, 2545, 811, 0, 46, 46, 0, 46, 4096, 46])
+        self.assertNotEqual(demo['positions'], hardware['positions'])
+        self.assertEqual(demo['positions'][3:], hardware['positions'][3:])
 
     def test_timed_out_queued_request_is_not_executed_later(self):
         with self.assertRaises(TimeoutError):self.controller.request('arm',{'session_id':self.session},timeout=.01)
@@ -269,6 +389,28 @@ class ControllerTests(unittest.TestCase):
         self.assertFalse(result['running']);self.assertTrue(result['jog_active']);self.assertIsNone(self.controller._plan)
         self.call('lock');self.assertEqual(self.writes()[-1][2],expected)
         self.assertFalse(self.controller.snapshot()['jog_active'])
+
+    def test_canfd_slider_reuses_recent_health_without_displaying_ack_as_actual(self):
+        self.controller.bind(self.hand,'canfd','right')
+        self.session=self.controller.snapshot()['session_id']
+        self.ready()
+        actual=self.controller.feedback()[0]
+        self.hand.submit_joint_position=Mock(return_value={'ack_joint_index':4,'ack_joint_position':1234,
+            'hand_error_code':0,'fault_check':'private_0x0d'})
+        self.call('joint',index=4,position=1234)
+        self.hand.submit_joint_position.assert_called_once_with(4,1234)
+        self.assertEqual(self.hand.calls,[])
+        self.assertEqual(self.controller.feedback()[0],actual)
+
+    def test_demo_single_joint_keeps_moving_when_retargeted_rapidly(self):
+        now=0.0
+        hand=DemoHand(clock=lambda:now)
+        hand.set_enabled(True)
+        initial=hand.positions()[0]
+        for target in (2500,2700,2900,3100,3300):
+            hand.set_joint_position(1,target)
+            now+=.045
+        self.assertGreater(hand.positions()[0]-initial,900)
 
     def test_stop_cancels_unsent_live_joint_requests(self):
         self.ready();self.hand.set_joint_position=Mock(wraps=self.hand.set_joint_position)

@@ -192,11 +192,11 @@ class Monitor:
             else:s["tactile"].update(sample["tactile"])
 
     def _run(self, device, stop):
-        last_touch = last_diag = next_sample = 0.0
+        last_touch = last_diag = last_sample = 0.0
         def control_tick(feedback=None,diagnostics=None,diagnostic_errors=()):
             if stop.is_set():return
             if diagnostics is not None:self.control.check_diagnostics(diagnostics,diagnostic_errors)
-            self.control.tick(device,feedback)
+            self.control.tick(device,feedback,poll_missing_feedback=False)
             positions,at=self.control.feedback()
             if positions is not None and at > self._published_control_feedback:
                 self._published_control_feedback=at
@@ -206,15 +206,18 @@ class Monitor:
                 if pose is not None:pose['sampled_at']=position_at
                 with self._state_lock:self._state.update(positions=positions,positions_at=position_at,pose=pose)
         while not stop.is_set():
-            started = time.monotonic()
             try:
                 control_tick()
-                if started >= next_sample:
+                started = time.monotonic()
+                # The same owner reads one stream for arrival checks and browser feedback.
+                interval = self.interval
+                if self.control.needs_fast_feedback():
+                    interval = min(interval, .04 if device.mode == 'demo' else .075)
+                if started - last_sample >= interval:
                     touch, diag = started - last_touch >= self.tactile_interval, started - last_diag >= self.diagnostics_interval
                     sample = read_sample(device, tactile=touch, diagnostics=diag, pose_solver=self._pose_solver,between_reads=control_tick)
-                    if diag:self.control.check_diagnostics(sample.get('diagnostics',{}))
                     self._merge(sample)
-                    next_sample=started+self.interval
+                    last_sample=started
                     if touch:last_touch=started
                     if diag:last_diag=started
                     with self._record_lock:

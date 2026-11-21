@@ -53,7 +53,7 @@ class ControlClient:
     def stop(self):return self._action('stop')
     def lock(self):return self._action('lock')
     def move(self,*,preset=None,positions=None,mode='direct',duration=4,control_mode='position',currents_ma=None,velocities=None):
-        """Send one full target by default; duration applies only to mode='smooth'."""
+        """Send one target by default. Staged mode waits at each clearance pose."""
         profile=control_profile({'control_mode':control_mode,'currents_ma':currents_ma,'velocities':velocities})
         body={'execution_mode':execution_mode_value(mode),**self._target(preset,positions),**profile}
         if mode=='smooth':body['duration']=duration_value(duration)
@@ -65,15 +65,20 @@ class ControlClient:
         profile=control_profile({'control_mode':control_mode,'currents_ma':currents_ma,'velocities':velocities})
         return self._action('joint',index=index,position=position,**profile)
 
-    def wait(self,motion_id,timeout=45):
-        deadline=time.monotonic()+timeout
-        while time.monotonic()<deadline:
+    def wait(self,motion_id,timeout=None):
+        started=time.monotonic()
+        deadline=started+timeout if timeout is not None else None
+        while deadline is None or time.monotonic()<deadline:
             state=self.state()['control']
             if state['session_id']!=self.session_id:raise RuntimeError('Device session changed while waiting')
             if state['motion_id']!=motion_id:raise RuntimeError('Motion was replaced')
             if not state['running']:
                 if state['status']!='completed':raise RuntimeError(state.get('error') or state['message'])
                 return state
+            if deadline is None:
+                stage=state.get('stage')
+                seconds=stage['total']*state['arrival_timeout']+10 if stage else 45
+                deadline=started+max(45,seconds)
             time.sleep(.2)
         # Do not automatically replay a command whose execution is uncertain.
         raise TimeoutError('Motion wait timed out; inspect feedback or call stop()')

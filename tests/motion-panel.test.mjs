@@ -31,7 +31,7 @@ function fixture(t){
   return {get,panel,state,calls,events};
 }
 
-test('default button sends exactly one complete target without a duration',async t=>{
+test('direct mode sends one complete target without a duration',async t=>{
   const {get,panel,calls}=fixture(t);
   get('motion-duration').value='invalid';panel.render(panel.state);
   assert.equal(get('motion-duration-field').hidden,true);
@@ -39,6 +39,39 @@ test('default button sends exactly one complete target without a duration',async
   await get('motion-execute').listeners.click();
   assert.equal(calls.length,1);
   assert.deepEqual(calls[0].body,{action:'move',session_id:'demo-session',execution_mode:'direct',control_mode:'position',positions:Array(10).fill(1200)});
+});
+
+test('a named preset is sent in staged mode and shows its current clearance step',async t=>{
+  const {get,panel,state,calls}=fixture(t);
+  panel.preset='three';
+  get('motion-mode').value='staged';get('motion-mode').listeners.change();
+  assert.equal(get('motion-execute').textContent,'分段发送');
+  await get('motion-execute').listeners.click();
+  assert.deepEqual(calls[0].body,{
+    action:'move',session_id:'demo-session',preset_id:'three',execution_mode:'staged',control_mode:'position'
+  });
+  panel.render({...state,control:{...state.control,running:true,motion_id:'m',
+    name:'数字3',execution_mode:'staged',stage:{index:2,total:4,name:'张开四指'},progress:.25}});
+  assert.match(get('motion-detail').textContent,/2\/4 张开四指/);
+  assert.equal(get('motion-progress').hidden,false);
+  assert.equal(get('motion-stop').disabled,false);
+});
+
+test('choosing a preset in the model panel changes the selected target without writing',async t=>{
+  const {get,panel,calls}=fixture(t);
+  const preset={id:'three',name:'数字3',icon:'3',description:'手势',positions:Array(10).fill(3000)};
+  panel.api=async(path,body)=>{
+    calls.push({path,body});
+    return {presets:[preset]};
+  };
+  await panel.catalog();
+  const select=get('motion-preset-select');
+  assert.equal(select.disabled,false);
+  assert.equal(select.children[1].textContent,'数字3');
+  select.listeners.change({target:{value:'three'}});
+  assert.equal(get('motion-target').textContent,'数字3');
+  assert.equal(select.value,'three');
+  assert.deepEqual(calls,[{path:'/api/control',body:undefined}]);
 });
 
 test('choosing interpolation only changes the form and does not send a command',t=>{
@@ -79,11 +112,13 @@ test('dragging one slider sends only that axis and keeps the feedback readout',a
 
 test('rapid drag updates coalesce to the newest value behind an in-flight request',async t=>{
   const {panel}=fixture(t),sent=[];let resolveFirst;
+  let refreshes=0;panel.refresh=async()=>{refreshes++;};
   panel.api=async(path,body)=>{sent.push(body);if(sent.length===1)await new Promise(resolve=>resolveFirst=resolve);return {};};
   panel.queueJoint(1,1200);const first=panel.flushJog();
   panel.queueJoint(1,1300);panel.queueJoint(1,1400);panel.queueJoint(2,1500);
   assert.equal(sent.length,1);resolveFirst();await first;await panel.flushJog();await panel.flushJog();
   assert.deepEqual(sent.map(b=>[b.index,b.position]),[[1,1200],[1,1400],[2,1500]]);
+  assert.equal(refreshes,0);
 });
 
 test('stop clears unsent slider targets even when an older request is still in flight',async t=>{

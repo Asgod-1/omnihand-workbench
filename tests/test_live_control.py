@@ -49,6 +49,11 @@ class LiveProtocolTests(unittest.TestCase):
         hand._query=Mock(return_value=b'\x0d\x00\x00');hand.positions=Mock(return_value=[1200]*10)
         result=hand.set_joint_position(3,1234)
         self.assertEqual(hand._exchange.call_args.args[0],joint_payload(3,1234));self.assertEqual(result['hand_error_code'],0)
+        hand.positions.reset_mock()
+        result=hand.set_joint_position(3,1234,readback=False)
+        self.assertEqual(result['ack_joint_position'],1234)
+        self.assertNotIn('positions',result)
+        hand.positions.assert_not_called()
         hand._exchange.return_value=b'\x06\x04\xd2\x04'
         with self.assertRaises(ValueError):hand.set_joint_position(3,1234)
 

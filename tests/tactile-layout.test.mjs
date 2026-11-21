@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 async function moduleAt(path){const source=await readFile(new URL(path,import.meta.url),'utf8');return import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));}
 const {tactileLayout,tactileColor,tactileStatistics,TOOLBOX_RAW_LAYOUTS,RAW_COUNTS}=await moduleAt('../src/omnihand_usb/web/tactile-layout.js');
-const {shortestAngle,cameraDistance,easeInOut}=await moduleAt('../src/omnihand_usb/web/view-math.js');
+const {shortestAngle,fitCameraFrame,easeInOut}=await moduleAt('../src/omnihand_usb/web/view-math.js');
 
 test('right and left finger maps preserve the official top and bottom indices',()=>{
   const right=tactileLayout('INDEX',16),left=tactileLayout('INDEX',16,{side:'left'});
@@ -41,11 +41,23 @@ test('all-zero contact data remains valid, including index zero',()=>{
   assert.deepEqual(tactileStatistics([0,0,0]),{maximum:0,minimum:0,mean:0,peakIndex:0,active:0});
   assert.equal(tactileStatistics(null),null);assert.match(tactileColor(0,0),/^#[0-9a-f]{6}$/);
 });
-test('camera uses a short orbit and fits a narrower viewport at a larger distance',()=>{
+test('camera uses a short, eased orbit',()=>{
   assert.ok(Math.abs(shortestAngle(350*Math.PI/180)-(-10*Math.PI/180))<1e-9);
-  assert.ok(cameraDistance({x:.1,y:.2,z:.08},33,.3)>cameraDistance({x:.1,y:.2,z:.08},33,1.5));
-  assert.equal(cameraDistance({x:.1,y:.2,z:.08},33,.6),cameraDistance({x:.1,y:.2,z:.08},33,1.5));
-  const tangent=Math.tan(33*Math.PI/360);
-  for(const aspect of [.3,.6,1.5]){const d=cameraDistance({x:.1,y:.2,z:.08},33,aspect);assert.ok(.05/(d-.04)<=tangent*aspect);assert.ok(.1/(d-.04)<=tangent);}
   assert.equal(easeInOut(0),0);assert.equal(easeInOut(1),1);assert.equal(easeInOut(.5),.5);
+});
+test('camera fits the model at its actual depth with room around the view', () => {
+  const points = [{x: -.05, y: -.1, z: -.04}, {x: .05, y: .1, z: -.04}, {x: 0, y: 0, z: .04}];
+  const tangent = Math.tan(33 * Math.PI / 360);
+  const wide = fitCameraFrame(points, 33, 1.5, .001);
+  assert.ok(fitCameraFrame(points, 33, .3, .001).distance > wide.distance);
+  assert.ok(wide.distance < .1 / tangent + .04);
+  for (const aspect of [.3, .6, 1.5]) {
+    const {center, distance} = fitCameraFrame(points, 33, aspect, .001);
+    for (const point of points) {
+      const depth = distance - (point.z - center.z);
+      assert.ok(depth >= .001);
+      assert.ok(Math.abs(point.y - center.y) / depth < tangent);
+      assert.ok(Math.abs(point.x - center.x) / depth < tangent * aspect);
+    }
+  }
 });

@@ -158,12 +158,15 @@ class _NativeDamiaoHand:
         from .motion_protocol import power_state
         return power_state(self._query(0x02))
 
-    def set_joint_position(self,index,position):
+    def set_joint_position(self,index,position,*,readback=True):
         from .motion_protocol import joint_payload,joint_reply
-        reply=self._exchange(joint_payload(index,position));joint_reply(reply,index)
+        reply=self._exchange(joint_payload(index,position))
+        reported=joint_reply(reply,index)
         code=protocol.error_code(self._query(0x0D))
-        return {'positions':self.positions(),'hand_error_code':code,'faults':None,
-                'fault_check':'private_0x0d','response_hex':reply.hex()}
+        result={'ack_joint_index':index,'ack_joint_position':reported,'hand_error_code':code,
+                'faults':None,'fault_check':'private_0x0d','response_hex':reply.hex()}
+        if readback:result['positions']=self.positions()
+        return result
 
     def set_mixed(self,positions,profile,index=None):
         from .control_profile import mixed_can_frames,joint_target
@@ -326,7 +329,7 @@ def _worker_main(connection, root, channel, node_id, hand_type, timeout):
                 elif operation == 'set_positions':
                     result = hand.set_positions(request['positions'])
                 elif operation == 'set_joint_position':
-                    result = hand.set_joint_position(request['index'],request['position'])
+                    result = hand.set_joint_position(request['index'],request['position'],readback=request.get('readback',True))
                 elif operation == 'set_mixed':
                     result = hand.set_mixed(request['positions'],request['profile'],request.get('index'))
                 elif operation == 'get_power_state':
@@ -437,6 +440,12 @@ class DamiaoHand:
         from .control_profile import joint_target
         joint_target(index,position)
         return self._rpc('set_joint_position',index=index,position=position)
+
+    def submit_joint_position(self,index,position):
+        """Confirm the single-axis ACK and fault status; let the sampler read the pose."""
+        from .control_profile import joint_target
+        joint_target(index,position)
+        return self._rpc('set_joint_position',index=index,position=position,readback=False)
 
     def set_mixed(self,positions,profile,index=None):
         from .motion_protocol import target_vector
