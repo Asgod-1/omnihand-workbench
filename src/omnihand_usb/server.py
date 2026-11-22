@@ -15,6 +15,8 @@ from .device import list_usb_ports
 
 
 class Handler(BaseHTTPRequestHandler):
+    disable_nagle_algorithm = True
+
     def __init__(self, *args, monitor, **kwargs):
         self.monitor = monitor
         super().__init__(*args, **kwargs)
@@ -28,10 +30,34 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _stream(self):
+        self.connection.settimeout(5)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache, no-transform")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        revision = -1
+        try:
+            while not self.server.stopping.is_set() and self.server.fileno() >= 0:
+                if self.monitor.wait_for_update(revision, 3):
+                    state = self.monitor.snapshot()
+                    revision = state['update_id']
+                    body = json.dumps(state, ensure_ascii=False, allow_nan=False).encode("utf-8")
+                    self.wfile.write(b"data: " + body + b"\n\n")
+                else:
+                    self.wfile.write(b": heartbeat\n\n")
+                self.wfile.flush()
+        except OSError:
+            # Browsers close the stream when refreshing, navigating or falling back.
+            return
+
     def do_GET(self):
         path = urlsplit(self.path).path
         if path == "/api/state":
             return self._json(self.monitor.snapshot())
+        if path == "/api/state/stream":
+            return self._stream()
         if path == "/api/ports":
             return self._json({"ports": list_usb_ports()})
         if path == '/api/control':
@@ -87,6 +113,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("JSON object required")
             if path == "/api/shutdown":
                 self._json({"ok": True, "message": "Dashboard service stopping"})
+                self.server.stopping.set()
                 threading.Thread(target=self.server.shutdown, daemon=True).start()
                 return
             if path == '/api/control':
@@ -118,4 +145,5 @@ class Handler(BaseHTTPRequestHandler):
 def make_server(monitor, port=8765):
     server = ThreadingHTTPServer(("127.0.0.1", port), partial(Handler, monitor=monitor))
     server.daemon_threads = True
+    server.stopping = threading.Event()
     return server

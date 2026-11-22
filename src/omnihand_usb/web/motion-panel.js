@@ -1,12 +1,14 @@
 const $=id=>document.getElementById(id);
 const names=['拇指旋转','拇指侧摆','拇指屈伸','食指侧摆','食指屈伸','中指屈伸','无名指侧摆','无名指屈伸','小指侧摆','小指屈伸'];
 const valid=values=>Array.isArray(values)&&values.length===10&&values.every(v=>Number.isInteger(v)&&v>=0&&v<=4096);
-const JOG_INTERVAL_MS=45;
+const JOG_INTERVAL_MS=25;
+const validHold=seconds=>Number.isFinite(seconds)&&seconds>=0&&seconds<=30;
 
 export class MotionPanel{
   constructor(api,refresh){
     this.api=api;this.refresh=refresh;this.state={};this.session=null;this.presets=[];this.target=null;this.preset=null;this.name='尚未选择目标';this.pending=0;this.error=null;
     this.jogTargets=new Map();this.jogBusy=false;this.jogTimer=null;this.jogGeneration=0;this.lastJog=0;
+    this.playbackSteps=[];this.playbackRows=[];this.playbackLimit=0;
     names.forEach((name,i)=>{
       const row=document.createElement('label');row.className='axis-control';
       const title=document.createElement('span');title.textContent=`${String(i+1).padStart(2,'0')} ${name}`;
@@ -30,6 +32,9 @@ export class MotionPanel{
     $('motor-disable').addEventListener('click',()=>this.send('disable'));
     $('motion-stop').addEventListener('click',()=>this.send('stop'));
     $('motion-execute').addEventListener('click',()=>this.send('move'));
+    $('sequence-add').addEventListener('click',()=>this.addPlaybackStep());
+    $('sequence-play').addEventListener('click',()=>this.send('play'));
+    $('sequence-stop').addEventListener('click',()=>this.send('stop'));
     $('motion-preset-select').addEventListener('change',event=>{
       const preset=this.presets.find(item=>item.id===event.target.value);
       if(preset)this.selectPreset(preset);
@@ -50,6 +55,7 @@ export class MotionPanel{
     const data=await this.api('/api/control');
     if(session!==this.session)return;
     this.presets=data.presets;
+    this.playbackLimit=data.playback_limit||0;
     const select=$('motion-preset-select');
     const placeholder=document.createElement('option');
     placeholder.value='';placeholder.textContent='选择预设';placeholder.disabled=true;
@@ -88,6 +94,72 @@ export class MotionPanel{
       button.classList.toggle('selected',selected);
       button.setAttribute('aria-pressed',String(selected));
     });
+  }
+  addPlaybackStep(){
+    const preset=this.presets.find(item=>item.id===this.preset);
+    if(!preset||this.playbackSteps.length>=this.playbackLimit||this.state.control?.running||this.pending)return;
+    this.playbackSteps.push({preset_id:preset.id,name:preset.name,hold_seconds:0});
+    this.buildPlaybackRows();
+  }
+  buildPlaybackRows(){
+    this.playbackRows=this.playbackSteps.map((step,index)=>{
+      const row=document.createElement('li');
+      const name=document.createElement('strong');name.textContent=step.name;
+      const label=document.createElement('label');label.textContent='停留';
+      const hold=document.createElement('input');hold.type='number';hold.min=0;hold.max=30;hold.step=.1;
+      hold.value=validHold(step.hold_seconds)?step.hold_seconds:'';
+      hold.setAttribute('aria-label',`第 ${index+1} 步停留秒数`);
+      hold.addEventListener('input',()=>{
+        step.hold_seconds=hold.value===''?NaN:Number(hold.value);
+        this.render(this.state);
+      });
+      label.append(hold,'秒');
+      const editButton=(text,action,edit)=>{
+        const button=document.createElement('button');button.type='button';button.className='secondary';button.textContent=text;
+        button.setAttribute('aria-label',`${action}第 ${index+1} 步`);
+        button.addEventListener('click',()=>{
+          if(this.state.control?.running||this.pending)return;
+          edit();
+          this.buildPlaybackRows();
+        });
+        return button;
+      };
+      const up=editButton('↑','上移',()=>this.movePlaybackStep(index,index-1));
+      const down=editButton('↓','下移',()=>this.movePlaybackStep(index,index+1));
+      const remove=editButton('删除','删除',()=>this.playbackSteps.splice(index,1));
+      row.append(name,label,up,down,remove);
+      return {row,hold,up,down,remove};
+    });
+    $('sequence-steps').replaceChildren(...this.playbackRows.map(item=>item.row));
+    this.render(this.state);
+  }
+  movePlaybackStep(from,to){
+    if(to<0||to>=this.playbackSteps.length)return;
+    const [step]=this.playbackSteps.splice(from,1);
+    this.playbackSteps.splice(to,0,step);
+  }
+  playbackIsValid(){
+    return this.playbackSteps.length>0&&this.playbackSteps.length<=this.playbackLimit
+      &&this.playbackSteps.every(step=>validHold(step.hold_seconds)&&this.presets.some(preset=>preset.id===step.preset_id));
+  }
+  renderPlayback(c,ready){
+    const status=c.playback;
+    const editingBlocked=!!c.running||!!this.pending;
+    const playing=!!c.running&&!!status;
+    $('sequence-add').disabled=editingBlocked||!this.presets.some(preset=>preset.id===this.preset)||this.playbackSteps.length>=this.playbackLimit;
+    $('sequence-play').disabled=!ready||!this.playbackIsValid();
+    $('sequence-stop').hidden=!playing;
+    this.playbackRows.forEach(({row,hold,up,down,remove},i)=>{
+      row.classList.toggle('sequence-current',playing&&i+1===status.index);
+      hold.disabled=remove.disabled=editingBlocked;
+      up.disabled=editingBlocked||i===0;down.disabled=editingBlocked||i===this.playbackRows.length-1;
+    });
+    let text=this.playbackSteps.length?`${this.playbackSteps.length} 步 · 沿用当前控制设置`:'选择预设后加入序列。';
+    if(playing){
+      text=`${status.index}/${status.total} · ${status.name}`+(status.status==='holding'&&status.hold_seconds>0?` · 停留 ${status.hold_seconds} 秒`:'');
+    }else if(status?.status==='completed')text=`播放完成 · ${status.total} 步`;
+    else if(status?.status==='stopped'||status?.status==='failed')text=`已在第 ${status.index}/${status.total} 步停止`;
+    if($('sequence-status').textContent!==text)$('sequence-status').textContent=text;
   }
   profile(){
     const mode=$('control-mode').value||'position',profile={control_mode:mode};
@@ -134,9 +206,12 @@ export class MotionPanel{
     this.cancelJog();
     this.pending++;this.error=null;this.render(this.state);
     const body={action,session_id:this.state.control?.session_id};
-    if(action==='move'){
-      if(!valid(this.target)){this.pending--;this.fail(new Error('请先选择有效目标'));return;}
-      try{Object.assign(body,this.preset?{preset_id:this.preset}:{positions:[...this.target]},{execution_mode:$('motion-mode').value},this.profile());}
+    if(action==='move'||action==='play'){
+      if(action==='move'&&!valid(this.target)){this.pending--;this.fail(new Error('请先选择有效目标'));return;}
+      if(action==='play'&&!this.playbackIsValid()){this.pending--;this.fail(new Error('请检查动作和停留时间'));return;}
+      const targets=action==='play'?{steps:this.playbackSteps.map(({preset_id,hold_seconds})=>({preset_id,hold_seconds}))}
+        :this.preset?{preset_id:this.preset}:{positions:[...this.target]};
+      try{Object.assign(body,targets,{execution_mode:$('motion-mode').value},this.profile());}
       catch(error){this.pending--;this.fail(error);return;}
       if(body.execution_mode==='smooth')body.duration=Number($('motion-duration').value);
       this.showNote('');
@@ -193,7 +268,9 @@ export class MotionPanel{
     const duration=Number($('motion-duration').value),durationOK=!smooth||(Number.isFinite(duration)&&duration>=.5&&duration<=30);
     $('motion-duration-field').hidden=!smooth;$('motion-mode').disabled=mode!=='position'||!!c.running||pending;$('motion-duration').disabled=!!c.running||pending;
     $('motion-execute').textContent=staged?'分段发送':smooth?'执行渐变':'直接发送';
-    $('motion-execute').disabled=!fresh||!c.armed||c.power_state===0||c.running||pending||!valid(this.target)||!durationOK;
+    const ready=fresh&&c.armed&&c.power_state!==0&&c.power_state!==2&&!c.running&&!pending&&durationOK;
+    $('motion-execute').disabled=!ready||!valid(this.target);
+    this.renderPlayback(c,ready);
     $('motion-preset-select').disabled=!available||!!c.running||pending||!this.presets.length;
     $('motion-save').disabled=!valid(this.target)||c.running;$('motion-capture').disabled=!fresh||c.running;
     const canJog=this.canJog();
@@ -208,7 +285,9 @@ export class MotionPanel{
     $('motion-message').textContent=this.error||(pending&&!c.running?'正在提交指令…':c.error||c.message)||'请先连接设备';$('motion-message').classList.toggle('bad',!!this.error||(!pending&&!!c.error));
     let motionDetail=mode==='pvt'?'位置＋速度＋电流':mode==='pt'?'位置＋电流':staged?'空手切换，逐段回读到位':'';
     if(smooth)motionDetail='电脑插值，每步最多 80 个位置单位';
-    if(c.running && c.stage){
+    if(c.playback?.status==='holding'){
+      motionDetail=`${c.name} · 已到位`;
+    }else if(c.running && c.stage){
       motionDetail=`${c.name} · ${c.stage.index}/${c.stage.total} ${c.stage.name}`;
     }else if(c.running && c.execution_mode==='smooth'){
       motionDetail=`${c.name} · ${Math.round((c.progress||0)*100)}% · 渐变至少 ${c.effective_duration}s`;
@@ -219,7 +298,7 @@ export class MotionPanel{
     }
     if(Number.isInteger(c.position_error)&&(c.running||c.status==='completed')){
       motionDetail+=` · 最大偏差 ${c.position_error}`;
-      if(c.arrival_tolerance>0)motionDetail+=` / ${c.arrival_tolerance}`;
+      if(c.arrival_tolerance>0&&(!c.stage||c.stage.index===c.stage.total))motionDetail+=` / ${c.arrival_tolerance}`;
     }
     $('motion-detail').textContent=motionDetail;
   }

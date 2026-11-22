@@ -13,6 +13,17 @@ from omnihand_usb.device import USBHand
 
 
 class LiveProtocolTests(unittest.TestCase):
+    def test_can_diagnostics_exposes_faults_before_optional_reads(self):
+        hand = DamiaoHand(".")
+        checkpoints = Mock()
+        hand._rpc = Mock(side_effect=(23, [1] * 10, [30] * 10))
+        result, errors = hand.poll_diagnostics(checkpoints)
+        self.assertEqual(errors, [])
+        self.assertEqual(result["hand_error_code"], 23)
+        self.assertEqual(hand._rpc.call_args_list[0].kwargs["field"], "hand_error_code")
+        self.assertEqual(checkpoints.call_args_list[0].kwargs, {"diagnostics": {"hand_error_code": 23}})
+        self.assertEqual(checkpoints.call_count, 3)
+
     def test_single_axis_private_command_and_reply_match_the_requested_axis(self):
         self.assertEqual(joint_payload(10,4096),b'\x06\x0a\x00\x10')
         self.assertEqual(joint_reply(b'\x06\x0a\xff\x0f',10),4095)
@@ -69,6 +80,14 @@ class LiveProtocolTests(unittest.TestCase):
             self.assertEqual(hand._device.send_can.call_count,2)
             self.assertTrue(all(c.args[1]==0x00140181 and c.args[4:]==(True,True,False,True) for c in hand._device.send_can.call_args_list))
             self.assertEqual(reply['delivery'],'transport_submitted_with_readback');self.assertNotIn('response_hex',reply)
+            hand.positions.reset_mock()
+            hand._query.reset_mock()
+            reply=hand.set_mixed([2000]*10,profile,readback=False)
+            self.assertEqual(reply['delivery'],'transport_submitted')
+            self.assertEqual(reply['submitted_frames'],2)
+            self.assertNotIn('positions',reply)
+            hand.positions.assert_not_called()
+            hand._query.assert_called_once_with(0x0D)
             hand._owner_thread=threading.get_ident()+1
             with self.assertRaises(RuntimeError):hand.set_mixed([2000]*10,profile)
 

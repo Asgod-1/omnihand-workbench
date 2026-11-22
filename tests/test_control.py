@@ -268,7 +268,27 @@ class ControllerTests(unittest.TestCase):
         self.controller.tick(self.hand,actual,poll_missing_feedback=False)
         self.assertEqual(self.controller.snapshot()['status'],'completed')
         self.assertEqual(self.controller.snapshot()['position_error'],51)
-        self.assertEqual(self.controller.snapshot()['arrival_tolerance'],64)
+        self.assertEqual(self.controller.snapshot()['arrival_tolerance'],192)
+        self.hand.set_positions.assert_called_once_with(target)
+
+    def test_canfd_finishes_stable_148_count_error_without_replaying_the_target(self):
+        self.controller.bind(self.hand,'canfd','right')
+        self.session=self.controller.snapshot()['session_id']
+        self.ready()
+        target=self.hand.positions()
+        self.hand.set_positions=Mock(return_value={'positions':target,'faults':[0]*10})
+        self.call('move',positions=target)
+        for error in (100,148):
+            actual=list(target)
+            actual[6]+=error
+            self.controller.tick(self.hand,actual,poll_missing_feedback=False)
+            self.assertTrue(self.controller.snapshot()['running'])
+        actual[6]=target[6]+147
+        self.controller.tick(self.hand,actual,poll_missing_feedback=False)
+        state=self.controller.snapshot()
+        self.assertEqual(state['status'],'completed')
+        self.assertEqual(state['position_error'],147)
+        self.assertIn('稳定',state['message'])
         self.hand.set_positions.assert_called_once_with(target)
 
     def test_stationary_out_of_range_ends_before_arrival_deadline(self):
@@ -344,6 +364,37 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(self.hand.set_positions.call_args.args[0], before)
         self.controller.tick(self.hand)
         self.assertEqual(self.hand.set_positions.call_count, 2)
+
+    def test_stage_relaxes_stable_side_swing_without_relaxing_flexion(self):
+        self.controller.bind(self.hand,'canfd','right')
+        self.session=self.controller.snapshot()['session_id']
+        start=next(p['positions'] for p in self.controller.catalog()['presets'] if p['id']=='open')
+        self.hand._positions=list(start)
+        self.ready()
+        target=list(start)
+        target[1],target[2],target[6]=2200,3100,1600
+        self.hand.set_positions=Mock(side_effect=lambda values: {'positions':values,'faults':[0]*10})
+        self.call('move',positions=target,execution_mode='staged')
+        stage=self.controller.snapshot()['stage']
+        self.assertEqual(stage['name'],'调整拇指方向和侧摆')
+        self.assertEqual(stage['total'],2)
+        clearance=list(self.hand.set_positions.call_args.args[0])
+        actual=list(clearance)
+        actual[1]-=148
+        actual[6]-=111
+        actual[2]-=66
+        for _ in range(2):
+            self.controller.tick(self.hand,actual,poll_missing_feedback=False)
+        self.assertEqual(self.controller.snapshot()['stage']['index'],1)
+        actual[2]=clearance[2]-12
+        self.controller.tick(self.hand,actual,poll_missing_feedback=False)
+        self.assertEqual(self.controller.snapshot()['stage']['index'],1)
+        actual[6]+=14
+        self.controller.tick(self.hand,actual,poll_missing_feedback=False)
+        self.assertEqual(self.controller.snapshot()['stage']['index'],2)
+        self.hand._positions=list(actual)
+        self.controller.tick(self.hand,poll_missing_feedback=False)
+        self.assertEqual([call.args[0] for call in self.hand.set_positions.call_args_list],[clearance,target])
 
     def test_stop_between_clearance_steps_never_sends_the_next_stage(self):
         self.ready()
@@ -434,6 +485,76 @@ class ControllerTests(unittest.TestCase):
     def test_mixed_control_rejects_host_interpolation_without_accessing_hardware(self):
         with self.assertRaises(ValueError):self.call('move',positions=[0]*10,execution_mode='smooth',control_mode='pt',currents_ma=[100]*10)
         self.assertEqual(self.hand.calls,[])
+
+    def test_mixed_canfd_arrival_uses_fresh_feedback_within_the_same_tolerance(self):
+        self.controller.bind(self.hand,'canfd','right')
+        self.session=self.controller.snapshot()['session_id']
+        self.ready()
+        self.hand.submit_mixed=Mock(return_value={'delivery':'transport_submitted','submitted_frames':1,
+            'hand_error_code':0,'fault_check':'private_0x0d'})
+        target=self.hand.positions()
+        actual=list(target)
+        actual[3]+=51
+        for mode in ('pt','pvt'):
+            with self.subTest(mode=mode):
+                profile={'control_mode':mode,'currents_ma':[100]*10}
+                if mode=='pvt':profile['velocities']=[500]*10
+                self.call('move',positions=target,**profile)
+                self.assertTrue(self.controller.snapshot()['running'])
+                for _ in range(2):
+                    self.controller.tick(self.hand,actual,poll_missing_feedback=False)
+                state=self.controller.snapshot()
+                self.assertEqual(state['status'],'completed')
+                self.assertEqual(state['position_error'],51)
+                self.hand.submit_mixed.assert_called_with(target,profile,None)
+
+    def test_playback_observes_arrival_and_hold_before_the_next_preset(self):
+        self.ready()
+        presets={p['id']:p['positions'] for p in self.controller.catalog()['presets']}
+        self.call('play',steps=[{'preset_id':'open','hold_seconds':1},{'preset_id':'half_grip'}])
+        self.assertEqual(self.controller.snapshot()['playback']['index'],1)
+        self.controller.tick(self.hand,self.hand.positions())
+        self.assertEqual(self.controller.snapshot()['playback']['status'],'playing')
+        self.controller.tick(self.hand,self.hand.positions())
+        self.assertEqual(self.controller.snapshot()['playback']['status'],'holding')
+        self.controller.tick(self.hand)
+        self.assertEqual([write[2] for write in self.writes()],[presets['open']])
+        self.controller._playback.hold_until=time.monotonic()-1
+        self.controller.tick(self.hand)
+        self.assertEqual([write[2] for write in self.writes()],[presets['open'],presets['half_grip']])
+        for _ in range(2):
+            self.controller.tick(self.hand,self.hand.positions())
+        self.controller.tick(self.hand)
+        self.assertEqual(self.controller.snapshot()['playback']['status'],'completed')
+        self.assertFalse(self.controller.snapshot()['running'])
+
+    def test_stopping_during_playback_hold_cancels_the_rest(self):
+        self.ready()
+        self.call('play',steps=[{'positions':[1000]*10,'hold_seconds':2},{'positions':[2000]*10}])
+        for _ in range(2):
+            self.controller.tick(self.hand,self.hand.positions())
+        self.assertEqual(self.controller.snapshot()['status'],'holding')
+        self.call('stop')
+        self.controller.tick(self.hand)
+        self.assertEqual(self.controller.snapshot()['playback']['status'],'stopped')
+        self.assertEqual([write[2] for write in self.writes()],[[1000]*10,[1000]*10])
+
+    def test_invalid_later_step_rejects_whole_sequence_before_any_write(self):
+        self.ready()
+        with self.assertRaises(ValueError):
+            self.call('play',steps=[{'preset_id':'open'},{'preset_id':'no_such_preset'}])
+        self.assertEqual(self.writes(),[])
+
+    def test_unreached_step_ends_playback_without_sending_the_next_target(self):
+        self.ready()
+        before=self.hand.positions()
+        self.hand.set_positions=Mock(return_value={'positions':before,'faults':[0]*10})
+        self.call('play',steps=[{'positions':[0]*10},{'positions':[1500]*10}])
+        self.controller._plan.settle_at-=11
+        self.controller.tick(self.hand,before)
+        self.assertEqual(self.controller.snapshot()['playback']['status'],'failed')
+        self.controller.tick(self.hand)
+        self.assertEqual([call.args[0] for call in self.hand.set_positions.call_args_list],[[0]*10,before])
 
 
 if __name__=='__main__':unittest.main()

@@ -16,6 +16,12 @@ import time
 from . import canfd_protocol as protocol
 from .damiao_runtime import checked_runtime, load_linux_library, check_abi
 
+DIAGNOSTIC_READS = {
+    "hand_error_code": (0x0D, protocol.error_code),
+    "current_raw": (0x0A, protocol.current_raw),
+    "temperature_c": (0x0C, protocol.temperatures),
+}
+
 
 class _NativeDamiaoHand:
     mode = "canfd"
@@ -168,7 +174,7 @@ class _NativeDamiaoHand:
         if readback:result['positions']=self.positions()
         return result
 
-    def set_mixed(self,positions,profile,index=None):
+    def set_mixed(self,positions,profile,index=None,*,readback=True):
         from .control_profile import mixed_can_frames,joint_target
         if index is not None:joint_target(index,positions[index-1] if type(index) is int and 1<=index<=10 else 0)
         if self._owner_thread is not None and threading.get_ident()!=self._owner_thread:
@@ -183,10 +189,12 @@ class _NativeDamiaoHand:
             if not self._device.send_can(self.channel,can_id,len(payload),payload,True,True,False,True):
                 raise RuntimeError('混合目标未提交成功；不自动重发')
         # Public mixed writes are asynchronous. Do not label readback as a write ACK.
-        code=protocol.error_code(self._query(0x0D));actual=self.positions()
-        return {'positions':actual,'faults':None,'hand_error_code':code,'fault_check':'private_0x0d',
-                'delivery':'transport_submitted_with_readback','submitted_frames':len(frames),
-                'request_hex':[p.hex() for p in frames]}
+        code=protocol.error_code(self._query(0x0D))
+        result={'faults':None,'hand_error_code':code,'fault_check':'private_0x0d',
+                'delivery':'transport_submitted','submitted_frames':len(frames),'request_hex':[p.hex() for p in frames]}
+        if readback:
+            result.update(positions=self.positions(),delivery='transport_submitted_with_readback')
+        return result
 
     def set_enabled(self, enabled):
         from .motion_protocol import power_payload,power_reply
@@ -209,14 +217,18 @@ class _NativeDamiaoHand:
 
     def diagnostics(self):
         result, errors = {}, []
-        for key, command, decoder in (("current_raw", 0x0A, protocol.current_raw), ("temperature_c", 0x0C, protocol.temperatures), ("hand_error_code", 0x0D, protocol.error_code)):
+        for key in DIAGNOSTIC_READS:
             try:
-                result[key] = decoder(self._query(command))
+                result[key] = self.read_diagnostic(key)
             except Exception as exc:
                 errors.append(f"{key}: {exc}")
         return result, errors
 
-    def raw_tactile(self):
+    def read_diagnostic(self, key):
+        command, decoder = DIAGNOSTIC_READS[key]
+        return decoder(self._query(command))
+
+    def raw_tactile(self, *, attempts=2):
         from .raw_tactile import DirectRawReader as RawReader
         from .raw_bridge import EXPECTED_COUNTS
         from datetime import datetime
@@ -241,7 +253,7 @@ class _NativeDamiaoHand:
         elif self._raw_reader.node_id != public_id:
             raise RuntimeError('公有手 ID 设置已变化，请重新连接后读取')
         try:
-            result = self._raw_reader.read()
+            result = self._raw_reader.read(attempts=attempts if self._raw_has_succeeded else 2)
         except (OSError,RuntimeError,TimeoutError) as exc:
             result = {'status':'error','regions':{},'expected_counts':EXPECTED_COUNTS,'error':str(exc)}
         result['public_hand_id'] = public_id
@@ -324,14 +336,16 @@ def _worker_main(connection, root, channel, node_id, hand_type, timeout):
                     result = hand.tactile(request["region"])
                 elif operation == "diagnostics":
                     result = hand.diagnostics()
+                elif operation == "read_diagnostic":
+                    result = hand.read_diagnostic(request["field"])
                 elif operation == "raw_tactile":
-                    result = hand.raw_tactile()
+                    result = hand.raw_tactile(attempts=request.get("attempts",2))
                 elif operation == 'set_positions':
                     result = hand.set_positions(request['positions'])
                 elif operation == 'set_joint_position':
                     result = hand.set_joint_position(request['index'],request['position'],readback=request.get('readback',True))
                 elif operation == 'set_mixed':
-                    result = hand.set_mixed(request['positions'],request['profile'],request.get('index'))
+                    result = hand.set_mixed(request['positions'],request['profile'],request.get('index'),readback=request.get('readback',True))
                 elif operation == 'get_power_state':
                     result = hand.get_power_state()
                 elif operation == 'set_enabled':
@@ -429,8 +443,28 @@ class DamiaoHand:
     def diagnostics(self):
         return self._rpc("diagnostics")
 
+    def poll_diagnostics(self, checkpoint):
+        result, errors = {}, []
+        for key in DIAGNOSTIC_READS:
+            try:
+                value = self._rpc("read_diagnostic", field=key)
+            except (OSError, RuntimeError, TimeoutError) as exc:
+                error = f"{key}: {exc}"
+                errors.append(error)
+                checkpoint(diagnostics={}, diagnostic_errors=(error,))
+            else:
+                result[key] = value
+                if key == "hand_error_code":
+                    checkpoint(diagnostics={key: value})
+                else:
+                    checkpoint()
+        return result, errors
+
     def raw_tactile(self):
         return self._rpc("raw_tactile")
+
+    def raw_tactile_once(self):
+        return self._rpc("raw_tactile", attempts=1)
 
     def set_positions(self, positions):
         from .motion_protocol import target_vector
@@ -451,6 +485,12 @@ class DamiaoHand:
         from .motion_protocol import target_vector
         from .control_profile import control_profile
         return self._rpc('set_mixed',positions=target_vector(positions),profile=control_profile(profile),index=index)
+
+    def submit_mixed(self,positions,profile,index=None):
+        """Submit once and check the fault code; position sampling is independent."""
+        from .motion_protocol import target_vector
+        from .control_profile import control_profile
+        return self._rpc('set_mixed',positions=target_vector(positions),profile=control_profile(profile),index=index,readback=False)
 
     def get_power_state(self):
         return self._rpc('get_power_state')

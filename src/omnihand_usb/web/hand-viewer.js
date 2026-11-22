@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from '/assets/three/OrbitControls.js';
 import { STLLoader } from '/assets/three/STLLoader.js';
-import { fitCameraFrame,shortestAngle,easeInOut } from '/view-math.js';
+import { fitCameraFrame,shortestAngle,easeInOut,modelJointAngle } from '/view-math.js';
 import { SurfaceTaxels } from '/taxel-surface.js';
 
 const host=document.getElementById('hand-viewport');
@@ -18,6 +18,7 @@ let modelReady=false,poseFitted=false,cameraInitialized=false,animation=null,gri
 let poseSession=null,poseSampleTime=-Infinity,poseBlend=null;
 const reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
 let taxels=null,pointPinned=false;
+let redraw=true;
 const directions={palm:new THREE.Vector3(1,.13,-.16).normalize(),back:new THREE.Vector3(-1,.13,-.16).normalize()};
 
 function meshBoundsPoints() {
@@ -93,6 +94,7 @@ function select(region,notify=true){
 }
 function paint(){
   if(!model)return;
+  redraw=true;
   const data=payload?.tactile||{};
   const useHeat=document.getElementById('model-color').value==='tactile';
   for(const mesh of meshes){
@@ -113,6 +115,7 @@ function paint(){
 function setJointAngle(joint,angle){
   joint.angle=angle;
   joint.group.quaternion.setFromAxisAngle(joint.axis,angle);
+  redraw=true;
 }
 
 function blendFeedback(now){
@@ -133,10 +136,9 @@ function update(s=payload?.state){
     poseFitted=false;
   }
   const pose=s.pose;
-  if(s.device?.hand==='left'){
-    root.visible=false;status.textContent='当前资源为右手模型，左手连接不套用右手姿态';return;
-  }
-  root.visible=true;
+  const showRightHand=s.device?.hand!=='left';
+  if(root.visible!==showRightHand){root.visible=showRightHand;redraw=true;}
+  if(!showRightHand){status.textContent='当前资源为右手模型，左手连接不套用右手姿态';return;}
   const sampleTime=Date.parse(pose?.sampled_at||s.positions_at);
   const fresh=s.connected&&Date.now()-sampleTime<3000;
   const simulated=s.mode==='demo';
@@ -145,20 +147,22 @@ function update(s=payload?.state){
     const now=performance.now();
     blendFeedback(now);
     const angles=[];
-    for(const [name,angle] of Object.entries(pose.joints_rad)){
+    for(const [name,feedbackAngle] of Object.entries(pose.joints_rad)){
       const joint=joints.get(name);
+      const angle=modelJointAngle(name,feedbackAngle);
       if(joint && Number.isFinite(angle) && angle!==joint.angle){
         angles.push([joint,joint.angle,angle]);
       }
     }
     if((simulated||s.control?.running||s.control?.jog_active)&&sampleGap<=275&&poseFitted&&!reducedMotion.matches&&angles.length){
       // Blend only successive device feedback frames, with no extrapolation.
-      poseBlend={angles,started:now,duration:Math.min(sampleGap,50)};
+      poseBlend={angles,started:now,duration:Math.min(sampleGap,28)};
     }else{
       poseBlend=null;
       for(const [joint,,angle] of angles)setJointAngle(joint,angle);
     }
     poseSampleTime=sampleTime;
+    host.dataset.feedbackAt=pose.sampled_at||s.positions_at;
     if(modelReady && !poseFitted){poseFitted=true;fitModel(false);}
   }
   if(!fresh)poseBlend=null;
@@ -167,7 +171,9 @@ function update(s=payload?.state){
   host.dataset.poseMode=simulated?'simulated':'measured';
   status.classList.toggle('live',!!fresh && !!pose?.joints_rad);
   const clipped=pose?.clamped_for_display||[];
-  document.getElementById('pose-note').textContent=`三维跟随${simulated?'模拟设备':'实机'}反馈，被动关节由官方求解器计算。`+(clipped.length?`轴 ${clipped.join('、')} 超出名义范围，三维按范围边界显示。`:'');
+  const note=document.getElementById('pose-note');
+  const detail=`三维跟随${simulated?'模拟设备':'实机'}反馈，被动关节由官方求解器计算。`+(clipped.length?`轴 ${clipped.join('、')} 超出名义范围，三维按范围边界显示。`:'');
+  if(note.textContent!==detail)note.textContent=detail;
 }
 
 async function initialize(){
@@ -189,6 +195,7 @@ async function initialize(){
     controls.enableDamping=true;controls.dampingFactor=.12;
     controls.minDistance=.1;controls.maxDistance=.9;
     controls.enablePan=false;
+    controls.addEventListener('change',()=>{redraw=true;});
     controls.addEventListener('start',()=>{animation=null;host.dataset.cameraAnimating='false';});
     const response=await fetch('/assets/model/model.json');
     if(!response.ok)throw new Error('请先运行 scripts/setup_visualization.py 安装官方模型');
@@ -226,6 +233,7 @@ async function initialize(){
     document.getElementById('model-loading').hidden=true;
     const observer=new ResizeObserver(()=>{
       const width=host.clientWidth,height=host.clientHeight;
+      if(!width||!height)return;
       renderer.setSize(width,height,false);camera.aspect=width/height;camera.updateProjectionMatrix();
       fitModel(false);
       renderer.render(scene,camera); // Keep the resized canvas populated before the next animation frame.
@@ -239,6 +247,7 @@ async function initialize(){
     const pickPoint=()=>taxels.pick(raycaster,{camera,pointer,width:host.clientWidth,height:host.clientHeight});
     function inspectPoint(hit,event,pinned){
       pointPinned=pinned;taxels.select({...hit,pinned});
+      redraw=true;
       window.dispatchEvent(new CustomEvent('omnihand-point',{detail:{region:hit.region,index:hit.index,source:hit.source,pinned}}));
       tooltip.replaceChildren();const title=document.createElement('strong');title.textContent=`${hit.name} #${hit.index}`;
       tooltip.append(title,document.createElement('br'),`${hit.source==='raw'?'原始':'普通'}触觉值：${hit.value}`);
@@ -248,7 +257,7 @@ async function initialize(){
     renderer.domElement.addEventListener('pointerup',event=>{
       const start=down;down=null;if(!start||Math.hypot(event.clientX-start[0],event.clientY-start[1])>5)return;
       aim(event);const point=pickPoint();if(point){inspectPoint(point,event,true);return;}
-      pointPinned=false;taxels.select(null);tooltip.hidden=true;
+      pointPinned=false;taxels.select(null);tooltip.hidden=true;redraw=true;
       const hit=raycaster.intersectObjects(meshes)[0];
       if(hit)select(hit.object.userData.region==='PALM'&&view==='back'?'DORSUM':hit.object.userData.region);
     });
@@ -265,9 +274,13 @@ async function initialize(){
         const spherical=new THREE.Spherical(THREE.MathUtils.lerp(a.start.radius,a.finish.radius,e),THREE.MathUtils.lerp(a.start.phi,a.finish.phi,e),a.start.theta+a.delta*e);
         controls.target.copy(a.fromTarget).lerp(a.target,e);camera.position.setFromSpherical(spherical).add(controls.target);
         camera.lookAt(controls.target);controls.enableDamping=false;controls.update();controls.enableDamping=true;
+        redraw=true;
         if(t===1){animation=null;host.dataset.cameraAnimating='false';}
       }else controls.update();
-      renderer.render(scene,camera);
+      if(redraw){
+        redraw=false;
+        renderer.render(scene,camera);
+      }
     });
     window.addEventListener('pagehide',event=>{
       if(event.persisted)return;

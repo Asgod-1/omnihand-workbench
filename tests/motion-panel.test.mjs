@@ -146,3 +146,20 @@ test('locked controls cannot transmit slider values and reconnect drops pending 
   panel.render({...state,control:{...state.control,session_id:'new-session'}});await panel.flushJog();
   assert.equal(calls.length,0);
 });
+
+test('playback sends the edited preset order and holds in one request',async t=>{
+  const {get,panel,calls}=fixture(t);
+  const open={id:'open',name:'张开手',positions:Array(10).fill(3500)};
+  const close={id:'close',name:'合拢',positions:Array(10).fill(500)};
+  panel.presets=[open,close];panel.playbackLimit=32;
+  panel.selectPreset(open);get('sequence-add').listeners.click();
+  panel.selectPreset(close);get('sequence-add').listeners.click();
+  const seconds=panel.playbackRows[0].hold;
+  seconds.value='0.3';seconds.listeners.input();
+  panel.playbackRows[0].down.listeners.click();
+  await get('sequence-play').listeners.click();
+  assert.deepEqual(calls.map(c=>c.body),[{
+    action:'play',session_id:'demo-session',execution_mode:'direct',control_mode:'position',
+    steps:[{preset_id:'close',hold_seconds:0},{preset_id:'open',hold_seconds:.3}]
+  }]);
+});

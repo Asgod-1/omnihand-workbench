@@ -47,11 +47,13 @@ class DirectRawReader:
             try:self.queue.put_nowait((time.monotonic(),bytes(payload)))
             except queue.Full:pass
 
-    def read(self):
+    def read(self, *, attempts=2):
         if self.closed or threading.get_ident()!=self.owner_thread:
             raise RuntimeError('Raw reader is closed or is outside the device thread')
+        if attempts not in (1,2):
+            raise ValueError('Raw tactile reads allow one or two attempts')
         latest={}
-        for attempt in (1,2):
+        for attempt in range(1,attempts+1):
             while True:
                 try:self.queue.get_nowait()
                 except queue.Empty:break
@@ -81,7 +83,7 @@ class DirectRawReader:
             finally:self.active=False
             latest=parts
         return {'status':'partial' if latest else 'no_response','regions':{},'returned_counts':{},'expected_counts':EXPECTED_COUNTS,
-            'returned_frames':len(latest),'query_attempts':2,'error':'本次未收到完整的 5 个原始分包；不补零或使用旧帧。'}
+            'returned_frames':len(latest),'query_attempts':attempts,'error':'本次未收到完整的 5 个原始分包；不补零或使用旧帧。'}
 
     def close(self):
         self.closed=True;self.active=False

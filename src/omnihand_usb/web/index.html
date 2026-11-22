@@ -89,6 +89,16 @@
           <div class="motion-target-summary"><strong id="motion-target">尚未选择目标</strong><small id="motion-target-values">在三维面板发送选中的动作。</small></div>
         </div>
         <p class="motion-preview-note" id="motion-preview-note" hidden></p>
+        <section class="motion-sequence" aria-labelledby="sequence-heading">
+          <div class="sequence-tools">
+            <h3 id="sequence-heading">动作序列</h3>
+            <button id="sequence-add" class="secondary" type="button" disabled>加入所选预设</button>
+            <button id="sequence-play" class="primary" type="button" disabled>播放序列</button>
+            <button id="sequence-stop" class="release-button" type="button" hidden>停止播放</button>
+          </div>
+          <ol id="sequence-steps" aria-label="动作播放顺序"></ol>
+          <p id="sequence-status" role="status">选择预设后加入序列。</p>
+        </section>
       </div><details class="motion-help"><summary>控制说明 · 停止依赖通信，失能会释放保持力</summary><p>停止操作会终止后续目标并发送当前位置保持指令，需等待通信应答；不能替代硬件急停。关闭网页不会终止后台动作或切断电源。</p></details>
     </section>
     </div>

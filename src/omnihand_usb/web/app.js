@@ -137,24 +137,46 @@ $('export-snapshot').addEventListener('click',()=>{
   const anchor=document.createElement('a');anchor.href=url;anchor.download=`omnihand_snapshot_${new Date().toISOString().replace(/[:.]/g,'-')}.json`;anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 window.addEventListener('omnihand-region',event=>{if(event.detail!=='ALL')tactilePanel.selectRegion(event.detail);});
-initializeRows();drawChart();refreshPorts().catch(e=>notice(e.message));
-(async function poll(){
-  let delay=500;
-  try{
-    const sample=await api("/api/state");
-    const fast=sample.connected&&sample.control?.armed;
-    if(fast)delay=65;
+let feedbackStream=null, streamRetryAt=0, lastStreamAt=0;
+function receiveSample(sample){
     if(sample.server_time<state.server_time)return;
     const c=sample.control, previous=state.control;
     const sameControl=previous&&['session_id','status','armed','running','power_state','motion_id','error'].every(key=>c?.[key]===previous[key])
       && c?.stage?.index===previous.stage?.index;
-    if(fast&&sameControl&&(age(sample.positions_at)<3)===(age(state.positions_at)<3)&&performance.now()-lastFullRender<220){
+    if(sample.connected&&sameControl&&(age(sample.positions_at)<3)===(age(state.positions_at)<3)&&performance.now()-lastFullRender<200){
       state=sample;
       motionPanel.renderFeedback(sample);
       window.dispatchEvent(new CustomEvent('omnihand-pose',{detail:sample}));
     }else{
       render(sample);
     }
+}
+function openFeedbackStream(sample){
+  if(!Number.isInteger(sample.update_id)||feedbackStream||Date.now()<streamRetryAt||typeof EventSource!=='function')return;
+  const source=new EventSource('/api/state/stream');
+  feedbackStream=source;
+  source.onmessage=event=>{
+    if(feedbackStream!==source)return;
+    lastStreamAt=Date.now();
+    receiveSample(JSON.parse(event.data));
+  };
+  source.onerror=()=>{
+    if(feedbackStream!==source)return;
+    source.close();
+    feedbackStream=null;
+    lastStreamAt=0;
+    streamRetryAt=Date.now()+2500;
+  };
+}
+initializeRows();drawChart();refreshPorts().catch(e=>notice(e.message));
+(async function poll(){
+  let delay=500;
+  try{
+    const sample=await api("/api/state");
+    receiveSample(sample);
+    openFeedbackStream(sample);
+    if(Date.now()-lastStreamAt<1000)delay=750;
+    else if(sample.connected&&sample.control?.armed)delay=65;
   }catch(e){
     $("status-dot").className="status-dot error";
     $("status-text").textContent="服务未响应";

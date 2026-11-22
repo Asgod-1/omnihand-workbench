@@ -17,7 +17,8 @@ def now_iso():
     return datetime.now().astimezone().isoformat(timespec="milliseconds")
 
 
-def read_sample(device, *, tactile=True, diagnostics=True, pose_solver=None, between_reads=None):
+def read_sample(device, *, tactile=True, diagnostics=True, pose_solver=None, between_reads=None,
+                on_position=None, retry_raw=True):
     """Each reply keeps a timestamp; failures are not replaced with zero arrays."""
     sample = {"sampled_at": now_iso(), "errors": [], "tactile": {}}
     ordinary=getattr(device,'ordinary_tactile_enabled',getattr(device,'mode','usb')!='canfd')
@@ -33,16 +34,23 @@ def read_sample(device, *, tactile=True, diagnostics=True, pose_solver=None, bet
     except Exception as exc:
         sample["positions"] = None
         sample["errors"].append(f"positions: {exc}")
+    if on_position:on_position(sample)
     if between_reads:between_reads(sample.get('positions'))
+    if sample['positions'] is None and getattr(device,'mode',None)=='canfd':
+        # A dead position link should not accumulate timeouts from auxiliary reads.
+        sample['completed_at'] = now_iso()
+        return sample
     if diagnostics:
-        sample["diagnostics"], problems = device.diagnostics()
+        poll_diagnostics=getattr(device,'poll_diagnostics',None)
+        sample["diagnostics"], problems = poll_diagnostics(between_reads) if between_reads and poll_diagnostics else device.diagnostics()
         sample["errors"].extend(problems)
         sample["diagnostics"]["sampled_at"] = now_iso()
         if between_reads:between_reads(diagnostics=sample['diagnostics'],diagnostic_errors=problems)
     if tactile:
         if hasattr(device, 'raw_tactile'):
             try:
-                sample['raw_tactile'] = device.raw_tactile()
+                read_raw=device.raw_tactile if retry_raw else getattr(device,'raw_tactile_once',device.raw_tactile)
+                sample['raw_tactile'] = read_raw()
             except Exception as exc:
                 sample['raw_tactile'] = {'status':'error','regions':{},'error':str(exc),'sampled_at':now_iso()}
         else:
@@ -71,6 +79,8 @@ class Monitor:
         self.tactile_interval, self.diagnostics_interval = tactile_interval, diagnostics_interval
         self._lifecycle = threading.RLock()
         self._state_lock = threading.Lock()
+        self._state_changed = threading.Condition(self._state_lock)
+        self._update_id = 0
         self._record_lock = threading.Lock()
         self._stop = threading.Event()
         self._thread = None
@@ -84,10 +94,19 @@ class Monitor:
     def snapshot(self):
         with self._state_lock:
             state = copy.deepcopy(self._state)
+            state['update_id'] = self._update_id
         state["server_time"] = now_iso()
         state['control'] = self.control.snapshot()
         state['read_only'] = not state['control']['armed']
         return state
+
+    def _announce_locked(self):
+        self._update_id += 1
+        self._state_changed.notify_all()
+
+    def wait_for_update(self, previous, timeout):
+        with self._state_changed:
+            return self._state_changed.wait_for(lambda: self._update_id != previous, timeout)
 
     def connect(self, port="auto", *, demo=False, hand_type="right", device_id=1, transport="usb", can_channel=1, can_id=9):
         if transport not in ("usb", "canfd"):
@@ -109,6 +128,7 @@ class Monitor:
             except Exception as exc:
                 with self._state_lock:
                     self._state["errors"] = [str(exc)]
+                    self._announce_locked()
                 raise
             self._device = device
             try:
@@ -122,6 +142,7 @@ class Monitor:
             self._published_control_feedback = 0.0
             with self._state_lock:
                 self._state.update(connected=True, mode=device.mode, device=info, sequence=0, valid_position_samples=0, positions=None, positions_at=None, pose=None,raw_tactile={},diagnostics={}, tactile={}, errors=[])
+                self._announce_locked()
             self._thread = threading.Thread(target=self._run, args=(device, self._stop), name="usb-hand-sampler", daemon=True)
             self._thread.start()
             return self.snapshot()
@@ -133,6 +154,7 @@ class Monitor:
                 # Ask the existing owner to cancel and hold before closing its transport.
                 self.control.request('lock',{'session_id':control['session_id']})
             self._stop.set()
+            self.control.wake_owner()
             if self._thread:
                 self._thread.join(timeout=10)
                 if self._thread.is_alive():
@@ -145,6 +167,7 @@ class Monitor:
             self.set_recording(False)
             with self._state_lock:
                 self._state["connected"] = False
+                self._announce_locked()
 
     def set_recording(self, enabled):
         with self._lifecycle, self._record_lock:
@@ -158,12 +181,21 @@ class Monitor:
                 self._record.write(json.dumps({"record_type": "session", "started_at": now_iso(), "device": self.snapshot()["device"], "timestamp_semantics": "host query time, not device acquisition time"}, ensure_ascii=False) + "\n")
                 with self._state_lock:
                     self._state.update(recording=True, record_path="data/" + name)
+                    self._announce_locked()
             elif not enabled and self._record is not None:
                 self._record.close()
                 self._record = None
                 with self._state_lock:
                     self._state["recording"] = False
+                    self._announce_locked()
         return self.snapshot()
+
+    def _publish_position(self, positions, position_at, pose):
+        if pose is not None:
+            pose = {**pose, 'sampled_at': position_at}
+        with self._state_lock:
+            self._state.update(positions=positions, positions_at=position_at, pose=pose)
+            self._announce_locked()
 
     def _merge(self, sample):
         with self._state_lock:
@@ -174,7 +206,7 @@ class Monitor:
             if sample["positions"] is not None:
                 s["valid_position_samples"] += 1
                 position_at=sample.get('positions_at',sample['completed_at'])
-                if not s['positions_at'] or position_at >= s['positions_at']:
+                if not s['positions_at'] or position_at > s['positions_at']:
                     s["positions"] = sample["positions"]
                     s["positions_at"] = position_at
                     s['pose'] = sample.get('pose')
@@ -190,41 +222,57 @@ class Monitor:
             if 'tactile_policy' in sample:s['tactile_policy']=sample['tactile_policy']
             if s.get('tactile_policy',{}).get('ordinary')=='disabled':s['tactile']={}
             else:s["tactile"].update(sample["tactile"])
+            self._announce_locked()
 
     def _run(self, device, stop):
         last_touch = last_diag = last_sample = 0.0
+        control_revision = self.control.revision
+        def on_position(sample):
+            if sample['positions'] is not None:
+                self._publish_position(sample['positions'],sample['positions_at'],sample.get('pose'))
+            elif device.mode=='canfd':
+                self.control.position_unavailable(sample['errors'][0])
         def control_tick(feedback=None,diagnostics=None,diagnostic_errors=()):
+            nonlocal control_revision
             if stop.is_set():return
             if diagnostics is not None:self.control.check_diagnostics(diagnostics,diagnostic_errors)
             self.control.tick(device,feedback,poll_missing_feedback=False)
             positions,at=self.control.feedback()
             if positions is not None and at > self._published_control_feedback:
                 self._published_control_feedback=at
-                position_at=now_iso()
-                try:pose=self._pose_solver.solve(positions) if self._pose_solver else None
-                except Exception as exc:pose={'joints_rad':{},'error':str(exc)}
-                if pose is not None:pose['sampled_at']=position_at
-                with self._state_lock:self._state.update(positions=positions,positions_at=position_at,pose=pose)
+                if positions != feedback:
+                    position_at=now_iso()
+                    try:pose=self._pose_solver.solve(positions) if self._pose_solver else None
+                    except Exception as exc:pose={'joints_rad':{},'error':str(exc)}
+                    self._publish_position(positions,position_at,pose)
+            if self.control.revision!=control_revision:
+                control_revision=self.control.revision
+                with self._state_lock:self._announce_locked()
         while not stop.is_set():
+            wait = .02
             try:
                 control_tick()
                 started = time.monotonic()
                 # The same owner reads one stream for arrival checks and browser feedback.
                 interval = self.interval
                 if self.control.needs_fast_feedback():
-                    interval = min(interval, .04 if device.mode == 'demo' else .075)
+                    interval = min(interval, .028 if device.mode == 'demo' else .06)
                 if started - last_sample >= interval:
                     touch, diag = started - last_touch >= self.tactile_interval, started - last_diag >= self.diagnostics_interval
-                    sample = read_sample(device, tactile=touch, diagnostics=diag, pose_solver=self._pose_solver,between_reads=control_tick)
+                    sample = read_sample(device, tactile=touch, diagnostics=diag, pose_solver=self._pose_solver,
+                                         between_reads=control_tick,on_position=on_position,
+                                         retry_raw=not self.control.snapshot()['armed'])
                     self._merge(sample)
                     last_sample=started
-                    if touch:last_touch=started
-                    if diag:last_diag=started
+                    if 'raw_tactile' in sample or sample['tactile']:last_touch=started
+                    if 'diagnostics' in sample:last_diag=started
                     with self._record_lock:
                         if self._record:
                             self._record.write(json.dumps({"record_type": "sample", **sample}, ensure_ascii=False, allow_nan=False) + "\n")
                             self._record.flush()
+                wait = max(.001, min(wait, last_sample + interval - time.monotonic()))
             except Exception as exc:
                 with self._state_lock:
                     self._state["errors"] = [str(exc)]
-            stop.wait(.02)
+                    self._announce_locked()
+            if not stop.is_set():self.control.wait_for_request(wait)

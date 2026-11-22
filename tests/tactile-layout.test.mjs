@@ -3,7 +3,18 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 async function moduleAt(path){const source=await readFile(new URL(path,import.meta.url),'utf8');return import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));}
 const {tactileLayout,tactileColor,tactileStatistics,TOOLBOX_RAW_LAYOUTS,RAW_COUNTS}=await moduleAt('../src/omnihand_usb/web/tactile-layout.js');
-const {shortestAngle,fitCameraFrame,easeInOut}=await moduleAt('../src/omnihand_usb/web/view-math.js');
+const {shortestAngle,fitCameraFrame,easeInOut,modelJointAngle}=await moduleAt('../src/omnihand_usb/web/view-math.js');
+
+test('right thumb side swing reverses travel within the URDF angular limits',()=>{
+  const lower=-1.464235482612666,upper=.04537856055185257;
+  const swing=angle=>modelJointAngle('R_thumb_abad_joint',angle);
+  assert.ok(Math.abs(swing(.05)-lower)<1e-10);
+  assert.ok(Math.abs(swing(-1.64)-upper)<1e-10);
+  assert.ok(Math.abs(swing((.05-1.64)/2)-(lower+upper)/2)<1e-10);
+  assert.ok(swing(-.8)<0);
+  assert.equal(modelJointAngle('R_thumb_roll_joint',-.8),-.8);
+  assert.equal(modelJointAngle('R_index_abad_joint',-.8),-.8);
+});
 
 test('right and left finger maps preserve the official top and bottom indices',()=>{
   const right=tactileLayout('INDEX',16),left=tactileLayout('INDEX',16,{side:'left'});

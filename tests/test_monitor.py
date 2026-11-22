@@ -1,11 +1,12 @@
 from pathlib import Path
 import tempfile
+import threading
 import time
 import unittest
 
 from omnihand_usb.monitor import Monitor,read_sample
 from omnihand_usb.device import DemoHand
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 
 class MonitorTests(unittest.TestCase):
@@ -27,6 +28,38 @@ class MonitorTests(unittest.TestCase):
             self.assertEqual(state["valid_position_samples"], 1)
             self.assertEqual(state["positions"], [4116] * 10)
             self.assertEqual(state["errors"], ["timeout"])
+
+    def test_losing_can_positions_skips_other_bus_reads(self):
+        hand = DemoHand()
+        hand.mode = "canfd"
+        hand.positions = Mock(side_effect=TimeoutError("offline"))
+        hand.raw_tactile = Mock()
+        hand.diagnostics = Mock()
+        sample = read_sample(hand)
+        self.assertEqual(sample["errors"], ["positions: offline"])
+        hand.raw_tactile.assert_not_called()
+        hand.diagnostics.assert_not_called()
+
+    def test_position_is_published_before_the_next_control_operation_returns(self):
+        waiting, release = threading.Event(), threading.Event()
+
+        def block_when_position_arrives(device, feedback=None, **options):
+            if feedback is not None:
+                waiting.set()
+                release.wait(2)
+
+        with tempfile.TemporaryDirectory() as temp:
+            monitor = Monitor(Path(temp))
+            with patch.object(monitor.control, "tick", side_effect=block_when_position_arrives):
+                try:
+                    monitor.connect(demo=True)
+                    self.assertTrue(waiting.wait(2))
+                    snapshot = monitor.snapshot()
+                    self.assertEqual(len(snapshot["positions"]), 10)
+                    self.assertTrue(snapshot["positions_at"])
+                finally:
+                    release.set()
+                    monitor.disconnect()
 
     def test_demo_recording_and_disconnect_release_writer(self):
         with tempfile.TemporaryDirectory() as temp:

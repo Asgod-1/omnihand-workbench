@@ -1,4 +1,13 @@
 export function shortestAngle(delta){return ((delta+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;}
+export function modelJointAngle(name, radians) {
+  if (name !== 'R_thumb_abad_joint') return radians;
+  // The O10 SDK's right-hand endpoints are -1.64 and 0.05 rad. Match
+  // the reversed travel to the pinned right-hand URDF's own zero and limits.
+  const travel = Math.min(1, Math.max(0, (0.05 - radians) / (0.05 + 1.64)));
+  const minimum = -1.464235482612666;
+  const maximum = 0.04537856055185257;
+  return minimum + (maximum - minimum) * travel;
+}
 // Points are in camera axes, with positive z toward the camera.
 export function fitCameraFrame(points, fovDegrees, aspect, near) {
   const min = {...points[0]}, max = {...points[0]};

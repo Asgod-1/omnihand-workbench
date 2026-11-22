@@ -45,6 +45,29 @@ class HttpContractTests(unittest.TestCase):
             page=response.read().decode()
             self.assertIn("全手触觉",page);self.assertIn('动作工作台',page)
 
+    def test_stream_pushes_position_feedback_without_another_state_request(self):
+        def next_frame(stream):
+            line = stream.readline()
+            self.assertTrue(line.startswith(b"data: "))
+            self.assertEqual(stream.readline(), b"\n")
+            return json.loads(line[6:])
+
+        with urllib.request.urlopen(self.base + "/api/state/stream", timeout=2) as stream:
+            self.assertEqual(stream.headers.get_content_type(), "text/event-stream")
+            initial = next_frame(stream)
+            self.assertFalse(initial["connected"])
+            self.monitor.connect(demo=True)
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                frame = next_frame(stream)
+                self.assertGreater(frame["update_id"], initial["update_id"])
+                if frame["positions"] is not None:
+                    self.assertEqual(frame["mode"], "demo")
+                    self.assertTrue(frame["positions_at"])
+                    break
+            else:
+                self.fail("No position reached the open stream")
+
     def test_motion_endpoint_is_not_exposed(self):
         with self.assertRaises(urllib.error.HTTPError) as error:
             self.post("/api/move", {"positions": [0] * 10})
